@@ -3,9 +3,7 @@ import socket
 import threading
 
 def handle_client(data, addr, sock):
-    """Function to handle client messages in a new thread."""
     print(f"[NEW THREAD] Received from {addr}: {data.decode()}")
-    # Echo the data back
     response = f"Server received: {data.decode()}"
     sock.sendto(response.encode(), addr)
 
