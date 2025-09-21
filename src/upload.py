@@ -2,7 +2,9 @@ import sys
 import os
 import argparse
 import logging
+import signal
 from socket import *
+from lib.rdt_protocol import RDTSender, request_shutdown, Protocol
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -48,10 +50,20 @@ def setup_argparse():
                        help='file name (defaults to source file name)')
     
     # protocol configuration
-    parser.add_argument('-r', '--protocol', type=str, choices=['stop_wait', 'selective_repeat'],
-                       default='stop_wait', help='error recovery protocol')
+    parser.add_argument('-r', '--protocol', type=str, 
+                       choices=[p.value for p in Protocol],
+                       default=Protocol.STOP_WAIT.value, 
+                       help='error recovery protocol')
     
     return parser.parse_args()
+
+def signal_handler(signum, frame, logger, socket_obj):
+    """Handle interrupt signals gracefully"""
+    logger.info(f"Received signal {signum}, stopping upload...")
+    request_shutdown()  # Signal RDT protocol to stop
+    if socket_obj:
+        socket_obj.close()
+    sys.exit(0)
 
 def main():
     # parse command line arguments
@@ -74,19 +86,34 @@ def main():
     clientSocket = socket(AF_INET, SOCK_DGRAM)
     logger.debug(f"Socket created")
     
+    # setup signal handlers
+    signal.signal(signal.SIGINT, lambda s, f: signal_handler(s, f, logger, clientSocket))
+    signal.signal(signal.SIGTERM, lambda s, f: signal_handler(s, f, logger, clientSocket))
+    
     logger.info(f"Uploading file '{args.src}' to {args.host}:{args.port}")
     logger.debug(f"Using protocol: {args.protocol}")
+    logger.info("Press Ctrl+C to cancel upload")
     
-    # TODO: implement actual file upload logic here
-    # for now, just sending a test message
-    message = f"UPLOAD {args.name}"
-    clientSocket.sendto(message.encode(), (args.host, args.port))
-    logger.debug(f"Upload request sent")
-    
-    modifiedMessage, serverAddress = clientSocket.recvfrom(2048)
-    logger.info(f"Server response: {modifiedMessage.decode()}")
-    
-    clientSocket.close()
-    logger.debug("Socket closed")
+    try:
+        # create RDT sender
+        sender = RDTSender(clientSocket, (args.host, args.port), logger)
+        
+        # send file using RDT protocol
+        if sender.send_file(args.src, args.name):
+            logger.info("File uploaded successfully")
+        else:
+            logger.error("File upload failed")
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Upload cancelled by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        sys.exit(1)
+    finally:
+        clientSocket.close()
+        logger.debug("Socket closed")
 
-main()
+if __name__ == '__main__':
+    main()
