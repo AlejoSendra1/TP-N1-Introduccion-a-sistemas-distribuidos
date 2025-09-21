@@ -1,8 +1,8 @@
-import sys
 import os
 import argparse
 import logging
 from socket import *
+from lib.rdt_protocol import Protocol
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -49,8 +49,10 @@ def setup_argparse():
                        help='file name to download')
     
     # protocol configuration
-    parser.add_argument('-r', '--protocol', type=str, choices=['stop_wait', 'selective_repeat'],
-                       default='stop_wait', help='error recovery protocol')
+    parser.add_argument('-r', '--protocol', type=str, 
+                       choices=[p.value for p in Protocol],
+                       default=Protocol.STOP_WAIT.value, 
+                       help='error recovery protocol')
     
     return parser.parse_args()
 
@@ -74,8 +76,7 @@ def main():
     logger.debug(f"Saving to: {args.dst}")
     logger.debug(f"Using protocol: {args.protocol}")
     
-    # TODO: implement actual file download logic here
-    # for now, just sending a test message
+    # TODO: we should implement actual file download logic here, but for now, we are just sending a test message
     message = f"DOWNLOAD {args.name}"
     clientSocket.sendto(message.encode(), (args.host, args.port))
     logger.debug("Download request sent")
