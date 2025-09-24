@@ -24,15 +24,11 @@ class RDTSender(AbstractSender):
     def _prepare_packets(self, filepath: str, filename: str) -> List[RDTPacket]:
         """Prepare packets from file using SW_PACKET_SIZE for Stop & Wait"""
         packets = []
-        
+        chunk_index = 0
+
         with open(filepath, 'rb') as file:
-            chunk_index = 0
-            
-            while True:
-                chunk = file.read(SW_PACKET_SIZE)
-                if not chunk:
-                    break
-                
+            chunk = file.read(SW_PACKET_SIZE) # TODO: se puede agregar esto en un parámetro y evitar redefinir todo el método
+            while chunk:
                 # check if this is the last chunk by trying to read one more byte
                 next_byte = file.read(1)
                 is_last = len(next_byte) == 0
@@ -53,6 +49,8 @@ class RDTSender(AbstractSender):
                 
                 if is_last:
                     break
+
+                chunk = file.read(SW_PACKET_SIZE)
         
         return packets
     
@@ -61,8 +59,8 @@ class RDTSender(AbstractSender):
         # perform handshake first
         if not self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE):
             return False
-            
-        for i, packet in enumerate(packets):
+
+        for packet in packets:
             # check for shutdown request
             if is_shutdown_requested():
                 self.logger.info("Upload cancelled due to shutdown request")
@@ -118,7 +116,7 @@ class RDTSender(AbstractSender):
                 self.logger.debug(f"Sent FIN packet (attempt {attempt + 1})")
                 
                 # wait for FIN ACK
-                ack_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                ack_data, _ = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 ack_packet = RDTPacket.from_bytes(ack_data)
                 
                 if (ack_packet.packet_type == PacketType.ACK and 
@@ -154,7 +152,7 @@ class RDTSender(AbstractSender):
                 self.logger.debug(f"Sent packet {packet.seq_num} (attempt {attempt + 1})")
                 
                 # wait for ACK
-                ack_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                ack_data, _ = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 ack_packet = RDTPacket.from_bytes(ack_data)
                 
                 # verify ACK

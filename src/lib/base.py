@@ -11,6 +11,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Tuple, Optional, List
 
+from lib.exceptions.sender_exceptions import EmptyFileException, InvalidFileException
+
 # protocol constants
 PACKET_SIZE = 4096  # 4KB packets for better throughput
 TIMEOUT = 0.2  # 200ms timeout for better reliability
@@ -196,13 +198,12 @@ class AbstractSender(ABC):
         try:
             # validate file (basic, maybe should be more strict or throw an exception to handle)
             if not self._validate_file(filepath):
-                return False
+                raise InvalidFileException()
             
             # prepare for transfer
             packets = self._prepare_packets(filepath, filename)
             if not packets:
-                self.logger.warning("File is empty")
-                return True
+                raise EmptyFileException()
             
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
             
@@ -241,15 +242,11 @@ class AbstractSender(ABC):
     def _prepare_packets(self, filepath: str, filename: str) -> List[RDTPacket]:
         """Prepare packets from file - common logic"""
         packets = []
-        
-        with open(filepath, 'rb') as file:
-            chunk_index = 0
+        chunk_index = 0
             
-            while True:
-                chunk = file.read(PACKET_SIZE)
-                if not chunk:
-                    break
-                
+        with open(filepath, 'rb') as file:
+            chunk = file.read(PACKET_SIZE)
+            while chunk: 
                 # check if this is the last chunk by trying to read one more byte
                 next_byte = file.read(1)
                 is_last = len(next_byte) == 0
@@ -270,6 +267,8 @@ class AbstractSender(ABC):
                 
                 if is_last:
                     break
+
+                chunk = file.read(PACKET_SIZE)
         
         return packets
     
