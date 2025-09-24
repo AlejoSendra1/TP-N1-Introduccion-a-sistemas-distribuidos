@@ -61,8 +61,6 @@ def setup_argparse():
 def signal_handler(signum, frame, logger, socket_obj):
     """Handle interrupt signals gracefully"""
     logger.info(f"Received signal {signum}, stopping upload...")
-    if socket_obj:
-        socket_obj.close()
     raise ShutdownRequestException()
     
 def main():
