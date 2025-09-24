@@ -5,6 +5,7 @@ import logging
 import signal
 from socket import socket, AF_INET, SOCK_DGRAM
 from lib import create_sender, request_shutdown, Protocol
+from lib.exceptions.channel_exceptions import ShutdownRequestException
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -60,11 +61,10 @@ def setup_argparse():
 def signal_handler(signum, frame, logger, socket_obj):
     """Handle interrupt signals gracefully"""
     logger.info(f"Received signal {signum}, stopping upload...")
-    request_shutdown()  # Signal RDT protocol to stop
     if socket_obj:
         socket_obj.close()
-    sys.exit(0)
-
+    raise ShutdownRequestException()
+    
 def main():
     # parse command line arguments
     args = setup_argparse()
@@ -108,6 +108,9 @@ def main():
             sys.exit(1)
             
     except KeyboardInterrupt:
+        logger.info("Upload cancelled by user")
+        sys.exit(0)
+    except ShutdownRequestException:
         logger.info("Upload cancelled by user")
         sys.exit(0)
     except Exception as e:

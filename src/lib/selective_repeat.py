@@ -5,6 +5,8 @@ Reliable data transfer with sliding window and selective retransmission
 
 import socket
 from typing import List, Tuple, Dict
+
+from lib.exceptions.channel_exceptions import ShutdownRequestException
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
     TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
@@ -42,11 +44,6 @@ class SelectiveRepeatSender(AbstractSender):
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
-            # check for shutdown request
-            if is_shutdown_requested():
-                self.logger.info("Upload cancelled due to shutdown request")
-                return False
-            
             # send new packets within window
             while (self.nextseqnum < total_packets and 
                    self.nextseqnum < self.send_base + self.window_size):
@@ -99,10 +96,7 @@ class SelectiveRepeatSender(AbstractSender):
         original_timeout = self.socket.gettimeout()
         self.socket.settimeout(FIN_TIMEOUT)
         
-        for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                return False
-                
+        for attempt in range(MAX_RETRIES): 
             try:
                 self.socket.sendto(fin_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent FIN packet (attempt {attempt + 1})")
@@ -192,10 +186,6 @@ class SelectiveRepeatSender(AbstractSender):
         self.socket.settimeout(HANDSHAKE_TIMEOUT)
         
         for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
             try:
                 # send INIT
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
@@ -248,11 +238,6 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         
         # continue receiving packets
         while True:
-            # check for shutdown request
-            if is_shutdown_requested():
-                self.logger.info("File reception cancelled due to shutdown request")
-                return False, b''
-            
             try:
                 data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
                 
@@ -274,6 +259,9 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                     
             except socket.timeout:
                 continue
+            except ShutdownRequestException:
+                self.logger.info("Reception cancelled due to shutdown request")
+                return False, b''
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
                 return False, b''

@@ -5,6 +5,9 @@ Simple reliable data transfer with alternating sequence numbers
 
 import socket
 from typing import List, Tuple
+
+from lib.exceptions.channel_exceptions import ShutdownRequestException
+from lib.exceptions.protocol_exceptions import FailedToEstablishSessionException
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
     MAX_RETRIES, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
@@ -57,15 +60,16 @@ class RDTSender(AbstractSender):
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
         """Send packets using Stop & Wait protocol"""
         # perform handshake first
-        if not self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE):
+        try:
+            self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE)
+        except ShutdownRequestException:
+            self.logger.info("Handshake cancelled due to shutdown request")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error during handshake: {e}")
             return False
 
         for packet in packets:
-            # check for shutdown request
-            if is_shutdown_requested():
-                self.logger.info("Upload cancelled due to shutdown request")
-                return False
-            
             # update sequence number (alternating 0, 1)
             packet.seq_num = self.seq_num
             packet.session_id = self.session_id  # add session ID to all packets
@@ -107,10 +111,6 @@ class RDTSender(AbstractSender):
         self.socket.settimeout(FIN_TIMEOUT)
         
         for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
             try:
                 self.socket.sendto(fin_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent FIN packet (attempt {attempt + 1})")
@@ -129,6 +129,9 @@ class RDTSender(AbstractSender):
                     
             except socket.timeout:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
+            except ShutdownRequestException:
+                self.socket.settimeout(original_timeout)
+                raise ShutdownRequestException()
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
                 self.socket.settimeout(original_timeout)
@@ -140,12 +143,7 @@ class RDTSender(AbstractSender):
     
     def _send_packet_reliable(self, packet: RDTPacket) -> bool:
         """Send packet with retransmission on timeout"""
-        for attempt in range(MAX_RETRIES):
-            # check for shutdown during retries
-            if is_shutdown_requested():
-                self.logger.info("Upload cancelled during retransmission")
-                return False
-            
+        for attempt in range(MAX_RETRIES):  
             try:
                 # send packet
                 self.socket.sendto(packet.to_bytes(), self.dest_addr)
@@ -163,7 +161,8 @@ class RDTSender(AbstractSender):
                     return True
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
-                    
+            except ShutdownRequestException: # lanza la excepción hacia arriba para no agarrarla en el generico
+                raise ShutdownRequestException()
             except socket.timeout:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
             except Exception as e:
@@ -173,7 +172,7 @@ class RDTSender(AbstractSender):
         self.logger.error(f"Failed to send packet {packet.seq_num} after {MAX_RETRIES} attempts")
         return False
     
-    def _perform_handshake(self, filename: str, file_size: int) -> bool:
+    def _perform_handshake(self, filename: str, file_size: int):
         """Perform handshake with server"""
         # Create INIT packet
         init_packet = RDTPacket(
@@ -188,17 +187,13 @@ class RDTSender(AbstractSender):
         self.socket.settimeout(HANDSHAKE_TIMEOUT)
         
         for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
             try:
                 # Send INIT
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
                 
                 # Wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_data, _ = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 accept_packet = RDTPacket.from_bytes(accept_data)
                 
                 if (accept_packet.packet_type == PacketType.ACCEPT and 
@@ -208,18 +203,18 @@ class RDTSender(AbstractSender):
                     self.session_id = accept_packet.session_id
                     self.logger.info(f"Handshake successful, session ID: {self.session_id}")
                     self.socket.settimeout(original_timeout)
-                    return True
-                    
+                    return
+            except ShutdownRequestException:
+                self.socket.settimeout(original_timeout)
+                raise ShutdownRequestException()
             except socket.timeout:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
                 self.socket.settimeout(original_timeout)
-                return False
+                raise e
                 
-        self.logger.error("Failed to establish session")
         self.socket.settimeout(original_timeout)
-        return False
+        raise FailedToEstablishSessionException(self.dest_addr)
 
 
 class RDTReceiver(AbstractReceiver):
@@ -270,11 +265,6 @@ class RDTReceiver(AbstractReceiver):
         file_data = b''
         
         while True:
-            # check for shutdown request
-            if is_shutdown_requested():
-                self.logger.info("File reception cancelled due to shutdown request")
-                return False, b''
-            
             try:
                 data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
                 
