@@ -1,10 +1,10 @@
-import sys
 import os
+import sys
 import argparse
 import logging
 import signal
-from socket import *
-from lib.rdt_protocol import RDTSender, request_shutdown, Protocol
+from socket import socket, AF_INET, SOCK_DGRAM
+from lib import create_sender, request_shutdown, Protocol
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -95,10 +95,12 @@ def main():
     logger.info("Press Ctrl+C to cancel upload")
     
     try:
-        # create RDT sender
-        sender = RDTSender(clientSocket, (args.host, args.port), logger)
+        # create appropriate sender using factory method
+        protocol = Protocol(args.protocol)
+        sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
+        logger.debug(f"Using {protocol.value} protocol")
         
-        # send file using RDT protocol
+        # send file using selected RDT protocol
         if sender.send_file(args.src, args.name):
             logger.info("File uploaded successfully")
         else:

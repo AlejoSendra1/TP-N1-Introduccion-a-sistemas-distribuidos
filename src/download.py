@@ -1,8 +1,8 @@
 import os
 import argparse
 import logging
-from socket import *
-from lib.rdt_protocol import Protocol
+from socket import socket, AF_INET, SOCK_DGRAM
+from lib import Protocol
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -76,7 +76,30 @@ def main():
     logger.debug(f"Saving to: {args.dst}")
     logger.debug(f"Using protocol: {args.protocol}")
     
-    # TODO: we should implement actual file download logic here, but for now, we are just sending a test message
+    # TODO: DOWNLOAD IMPLEMENTATION
+    # this is a placeholder with actual download logic using the library:
+    # 
+    # 1) create sender using factory:
+    #    from lib import create_sender, Protocol
+    #    sender = create_sender(Protocol(args.protocol), clientSocket, (args.host, args.port), logger)
+    # 
+    # 2) perform handshake (INIT with file_size=0 for download):
+    #    success = sender._perform_handshake(args.name, 0)  # filename, file_size=0
+    # 
+    # 3) receive file data:
+    #    if success:
+    #        file_data = sender.receive_downloaded_file()  # TODO: implement this method
+    #        
+    #        # 4) Save file:
+    #        with open(args.dst, 'wb') as f:
+    #            f.write(file_data)
+    #        logger.info(f"File downloaded successfully: {args.dst}")
+    #    else:
+    #        logger.error("Download failed")
+    # 
+    # 5) close socket and handle FIN/FIN-ACK automatically
+    
+    # PLACEHOLDER CODE (remove when implementing):
     message = f"DOWNLOAD {args.name}"
     clientSocket.sendto(message.encode(), (args.host, args.port))
     logger.debug("Download request sent")
