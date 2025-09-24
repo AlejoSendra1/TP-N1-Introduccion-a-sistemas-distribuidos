@@ -83,7 +83,7 @@ def main():
     #    from lib import create_sender, Protocol
     #    sender = create_sender(Protocol(args.protocol), clientSocket, (args.host, args.port), logger)
     # 
-    # 2) perform handshake (INIT with file_size=0 for download):
+    # 2) perform handshake (INIT with file_size=0 for download or BETTER IF PACKET TYPE IS = PacketType.REQUEST):
     #    success = sender._perform_handshake(args.name, 0)  # filename, file_size=0
     # 
     # 3) receive file data:

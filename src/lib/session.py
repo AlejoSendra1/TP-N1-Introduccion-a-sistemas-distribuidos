@@ -162,7 +162,7 @@ class RDTServer:
     Extend to handle download requests:
     1. Detect transfer type in wait_for_transfer():
        - UPLOAD: init_packet.file_size > 0
-       - DOWNLOAD: init_packet.file_size == 0
+       - DOWNLOAD: init_packet.file_size == 0 (BETTER IF PACKET TYPE IS = PacketType.REQUEST)
     2. Return DownloadRequest for download requests
     3. Create DownloadRequest class similar to TransferRequest
     """
