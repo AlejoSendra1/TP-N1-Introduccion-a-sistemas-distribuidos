@@ -208,15 +208,9 @@ class AbstractSender(ABC):
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
             
             # send packets using specific protocol
-            result = self._send_packets(packets)
-            
-            if result:
-                self.logger.info("File transfer completed successfully")
-            else:
-                self.logger.error("File transfer failed")
-            
-            return result
-            
+            self._send_packets(packets)
+            self.logger.info("File transfer completed successfully")
+            return True
         # TODO: DOWNLOAD IMPLEMENTATION
         # we should add a method to receive downloaded files from server:
         # def receive_downloaded_file(self) -> bytes:

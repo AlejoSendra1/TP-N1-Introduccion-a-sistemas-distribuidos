@@ -7,7 +7,7 @@ import socket
 from typing import List, Tuple
 
 from lib.exceptions.channel_exceptions import ShutdownRequestException
-from lib.exceptions.protocol_exceptions import FailedToEstablishSessionException, NoActiveSessionException
+from lib.exceptions.protocol_exceptions import FailedToEstablishSessionException, FinSessionFailureException, NoActiveSessionException, PacketSendFailureException
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
     MAX_RETRIES, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
@@ -28,7 +28,7 @@ class RDTSender(AbstractSender):
         """Prepare packets from file using SW_PACKET_SIZE for Stop & Wait"""
         packets = []
         chunk_index = 0
-        
+
         with open(filepath, 'rb') as file:
             chunk = file.read(SW_PACKET_SIZE) # TODO: se puede agregar esto en un parámetro y evitar redefinir todo el método
             while chunk:
@@ -57,51 +57,26 @@ class RDTSender(AbstractSender):
         
         return packets
     
-    def _send_packets(self, packets: List[RDTPacket]) -> bool:
+    def _send_packets(self, packets: List[RDTPacket]):
         """Send packets using Stop & Wait protocol"""
-        try:
-            self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE)
-        except ShutdownRequestException:
-            self.logger.info("Transfer cancelled by user (shutdown request)")
-            return False
-        except FailedToEstablishSessionException as e:
-            self.logger.error(f"{e}")
-            return False
+        self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE)
 
         for packet in packets:
             packet.seq_num = self.seq_num
             packet.session_id = self.session_id
             packet.calculate_checksum()
 
-            try:
-                if self._send_packet_reliable(packet):
-                    self.logger.debug(f"Packet {self.seq_num} sent successfully")
-                    self.seq_num = 1 - self.seq_num
-                    if packet.is_last:
-                        self.logger.info("Last packet sent and acknowledged")
-                        break
-                else:
-                    self.logger.error(f"Failed to send packet {self.seq_num}")
-                    return False
-            except ShutdownRequestException:
-                self.logger.info("Transfer cancelled by user (shutdown request)")
-                return False
-
-        try:
-            if self._send_fin():
-                self.logger.info("Session closed successfully")
-                return True
-            else:
-                self.logger.error("Failed to close session")
-                return False
-        except NoActiveSessionException:
-            self.logger.error("Failed to close session: No session ID for FIN packet")
-            return False
-        except ShutdownRequestException:
-            self.logger.info("Transfer cancelled by user (shutdown request)")
-            return False
+            self._send_packet_reliable(packet)
+            self.logger.debug(f"Packet {self.seq_num} sent successfully")
+            self.seq_num = 1 - self.seq_num
+            if packet.is_last:
+                self.logger.info("Last packet sent and acknowledged")
+                break
+            
+        self._send_fin()
+        self.logger.info("Session closed successfully")
     
-    def _send_fin(self) -> bool:
+    def _send_fin(self):
         """Send FIN packet to close session"""
         if not self.session_id:
             raise NoActiveSessionException("Error sending FIN")
@@ -127,17 +102,16 @@ class RDTSender(AbstractSender):
                     if (ack_packet.packet_type == PacketType.ACK and 
                         ack_packet.session_id == self.session_id):
                         self.logger.debug("Received FIN ACK")
-                        return True
+                        return
                     else:
                         self.logger.debug(f"Invalid FIN ACK, retrying...")
                 except socket.timeout:
                     self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
-            self.logger.error("Failed to close session with FIN")
-            return False
+            raise FinSessionFailureException("Error closing session", self.session_id)  
         finally:
             self.socket.settimeout(original_timeout)
     
-    def _send_packet_reliable(self, packet: RDTPacket) -> bool:
+    def _send_packet_reliable(self, packet: RDTPacket):
         """Send packet with retransmission on timeout"""
         for attempt in range(MAX_RETRIES):
             try:
@@ -151,13 +125,12 @@ class RDTSender(AbstractSender):
                     ack_packet.ack_num == packet.seq_num and 
                     ack_packet.verify_checksum()):
                     self.logger.debug(f"Received ACK for packet {packet.seq_num}")
-                    return True
+                    return
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
             except socket.timeout:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
-        self.logger.error(f"Failed to send packet {packet.seq_num} after {MAX_RETRIES} attempts")
-        return False
+        raise PacketSendFailureException("Error sending packet", packet.seq_num)
     
     def _perform_handshake(self, filename: str, file_size: int):
         """Perform handshake with server"""
