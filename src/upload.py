@@ -51,8 +51,8 @@ def setup_argparse():
     
     # protocol configuration
     parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
+                       choices=['stop_wait', 'selective_repeat'],
+                       default='stop_wait', 
                        help='error recovery protocol')
     
     return parser.parse_args()
@@ -96,9 +96,9 @@ def main():
     
     try:
         # create appropriate sender using factory method
-        protocol = Protocol(args.protocol)
+        protocol = Protocol.from_string(args.protocol)
         sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
-        logger.debug(f"Using {protocol.value} protocol")
+        logger.debug(f"Using {protocol} protocol")
         
         # send file using selected RDT protocol
         if sender.send_file(args.src, args.name):

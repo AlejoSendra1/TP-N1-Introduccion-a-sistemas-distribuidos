@@ -117,10 +117,31 @@ def main():
                     success, file_data = result
                     if success:
                         # save the file
-                        filepath = os.path.join(args.storage, request.filename)
-                        with open(filepath, 'wb') as f:
-                            f.write(file_data)
-                        logger.info(f"File saved: {filepath}")
+                        try:
+                            # ensure storage directory exists
+                            os.makedirs(args.storage, exist_ok=True)
+                            
+                            # debug information
+                            logger.debug(f"Storage dir: '{args.storage}'")
+                            logger.debug(f"Request filename: '{request.filename}'")
+                            
+                            # ensure filename is not empty
+                            if not request.filename or request.filename.strip() == '':
+                                logger.error("Empty filename received")
+                                continue
+                                
+                            # sanitize filename (remove path separators)
+                            safe_filename = os.path.basename(request.filename.strip())
+                            filepath = os.path.join(args.storage, safe_filename)
+                            
+                            logger.debug(f"Final filepath: '{filepath}'")
+                            
+                            with open(filepath, 'wb') as f:
+                                f.write(file_data)
+                            logger.info(f"File saved: {filepath}")
+                        except Exception as e:
+                            logger.error(f"Failed to save file: {e}")
+                            logger.error(f"Storage: '{args.storage}', Filename: '{request.filename}'")
                     else:
                         logger.error("Transfer failed")
                 else:

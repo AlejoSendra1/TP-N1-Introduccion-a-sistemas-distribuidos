@@ -21,8 +21,8 @@ class RDTSender(AbstractSender):
         self.session_id = None
         self.socket.settimeout(SW_TIMEOUT)
     
-    def _prepare_packets(self, filepath: str, filename: str) -> List[RDTPacket]:
-        """Prepare packets from file using SW_PACKET_SIZE for Stop & Wait"""
+    def _prepare_packets(self, filepath: str) -> List[RDTPacket]:
+        """Prepare DATA packets from file using SW_PACKET_SIZE for Stop & Wait"""
         packets = []
         
         with open(filepath, 'rb') as file:
@@ -45,7 +45,6 @@ class RDTSender(AbstractSender):
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
                     data=chunk,
-                    filename=filename if chunk_index == 0 else '',
                     is_last=is_last
                 )
                 packets.append(packet)
@@ -58,8 +57,10 @@ class RDTSender(AbstractSender):
     
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
         """Send packets using Stop & Wait protocol"""
-        # perform handshake first
-        if not self._perform_handshake(packets[0].filename, len(packets) * SW_PACKET_SIZE):
+        # perform handshake first (INIT)
+        file_size = sum(len(p.data) for p in packets if p.data)
+        self.logger.debug(f"Calculated file_size: {file_size} from {len(packets)} packets")
+        if not self._perform_handshake(self.filename, file_size):
             return False
             
         for i, packet in enumerate(packets):

@@ -50,8 +50,8 @@ def setup_argparse():
     
     # protocol configuration
     parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
+                       choices=['stop_wait', 'selective_repeat'],
+                       default='stop_wait', 
                        help='error recovery protocol')
     
     return parser.parse_args()
@@ -81,7 +81,7 @@ def main():
     # 
     # 1) create sender using factory:
     #    from lib import create_sender, Protocol
-    #    sender = create_sender(Protocol(args.protocol), clientSocket, (args.host, args.port), logger)
+    #    sender = create_sender(Protocol.from_string(args.protocol), clientSocket, (args.host, args.port), logger)
     # 
     # 2) perform handshake (INIT with file_size=0 for download or BETTER IF PACKET TYPE IS = PacketType.REQUEST):
     #    success = sender._perform_handshake(args.name, 0)  # filename, file_size=0

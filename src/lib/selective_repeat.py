@@ -31,13 +31,13 @@ class SelectiveRepeatSender(AbstractSender):
         """Send packets using selective repeat protocol"""
         total_packets = len(packets)
         
-        # Perform handshake first
+        # perform handshake first (INIT pkg)
         if total_packets > 0:
-            filename = packets[0].filename
-            file_size = len(packets) * PACKET_SIZE
+            file_size = sum(len(p.data) for p in packets if p.data)
+            self.logger.debug(f"Calculated file_size: {file_size} from {total_packets} packets")
             
             self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(filename, file_size):
+            if not self._perform_handshake(self.filename, file_size):
                 return False
             self.socket.settimeout(0.1)  # Back to non-blocking
         
@@ -180,13 +180,19 @@ class SelectiveRepeatSender(AbstractSender):
     def _perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server"""
         # create INIT packet
-        init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
-            filename=filename, # TODO: sacar???
-            file_size=file_size,
-            protocol=Protocol.SELECTIVE_REPEAT,
-            data=filename
-        )
+        try:
+            init_packet = RDTPacket(
+                packet_type=PacketType.INIT,
+                filename=filename,
+                file_size=file_size,
+                protocol=Protocol.SELECTIVE_REPEAT,
+                data=b''
+            )
+        except Exception as e:
+            self.logger.error(f"Error creating INIT packet: {e}")
+            self.logger.error(f"filename type: {type(filename)}, value: {filename}")
+            self.logger.error(f"file_size type: {type(file_size)}, value: {file_size}")
+            raise
         
         # longer timeout for handshake
         original_timeout = self.socket.gettimeout()
@@ -225,7 +231,6 @@ class SelectiveRepeatSender(AbstractSender):
         self.logger.error("Failed to establish session")
         self.socket.settimeout(original_timeout)
         return False
-
 
 class SelectiveRepeatReceiver(AbstractReceiver):
     """Selective Repeat receiver implementation with buffering"""
