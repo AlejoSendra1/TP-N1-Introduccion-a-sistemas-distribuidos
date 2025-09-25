@@ -130,7 +130,7 @@ class RDTSender(AbstractSender):
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
             except socket.timeout:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
-        raise PacketSendFailureException("Error sending packet", packet.seq_num)
+        raise PacketSendFailureException(packet.seq_num, "Error sending packet")
     
     def _perform_handshake(self, filename: str, file_size: int):
         """Perform handshake with server"""
