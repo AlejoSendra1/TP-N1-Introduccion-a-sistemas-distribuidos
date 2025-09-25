@@ -90,7 +90,7 @@ class RDTPacket:
     """RDT packet with error detection and metadata"""
     
     def __init__(self, seq_num: int = 0, packet_type: PacketType = PacketType.DATA, 
-                 data: bytes = b'', filename: str = '', is_last: bool = False, 
+                 data: bytes = b'', filename: str = None, is_last: bool = False, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
         self.seq_num = seq_num
@@ -126,26 +126,32 @@ class RDTPacket:
         return is_valid
     
     def to_bytes(self) -> bytes:
+        print(self.session_id)
         """Serialize packet to bytes for transmission"""
-        # create header
-        header = {
-            'seq_num': self.seq_num,
-            'type': self.packet_type.value,
-            'checksum': self.checksum,
-            'filename': self.filename,
-            'is_last': self.is_last,
-            'ack_num': self.ack_num,
-            'data_length': len(self.data),
-            'protocol': self.protocol.value if self.protocol else None,
-            'session_id': self.session_id,
-            'file_size': self.file_size
-        }
-        
-        header_bytes = json.dumps(header).encode()
-        header_length = len(header_bytes)
+        # Armamos el header binario con struct
+        header_bytes = struct.pack(
+            '!IBI?IIB4SI',
+            self.seq_num,             # I
+            self.packet_type.value,   # B
+            self.checksum,            # I
+            self.is_last,             # ?
+            self.ack_num,             # I
+            len(self.data),           # I
+            self.protocol.value,      # B
+            self.session_id if self.packet_type.value != PacketType.INIT else "",          # I
+            self.file_size            # I
+        )
+
+        payload = self.data if self.filename is "" else self.filename + self.data
+
+        return header_bytes + payload
         
         # pack: header_length (4 bytes) + header + data
-        return struct.pack('!I', header_length) + header_bytes + self.data
+        # return struct.pack('!I', header_length) + header_bytes + self.data
+
+        # TODO: remove filename & is_last fields
+        # TODO: check if header_length is necessary since its fixed else remove it
+        # header size = 4 (header length) + 26 (header size)
     
     @classmethod
     def from_bytes(cls, data: bytes) -> 'RDTPacket':
@@ -161,24 +167,46 @@ class RDTPacket:
         
         # extract header
         header_bytes = data[4:4+header_length]
-        header = json.loads(header_bytes.decode())
+        self.logger.info(f"HEADER BYTES {header_bytes}")
+        header = struct.unpack('IBI?IIBII', header_bytes)
+
+        data_length = header[5]
+
+        # extract packet data
+        packet_data = data[4+header_length:4+header_length+data_length]
+        packet_type = PacketType(header[1])
+
+        packet = cls(
+            seq_num=header[0],
+            packet_type=packet_type,
+            checksum=header[2],
+            is_last=header[3],
+            ack_num=header[4],
+            data=packet_data,
+            protocol=Protocol(header[6]),
+            session_id=header[7],
+            file_size=header[8],
+            filename=packet_data if packet_type == PacketType.INIT else None
+        )
+
+        # header = json.loads(header_bytes.decode())
         
         # extract packet data
-        packet_data = data[4+header_length:4+header_length+header['data_length']]
+        # packet_data = data[4+header_length:4+header_length+header['data_length']]
         
         # create packet
-        packet = cls(
-            seq_num=header['seq_num'],
-            packet_type=PacketType(header['type']),
-            data=packet_data,
-            filename=header['filename'],
-            is_last=header['is_last'],
-            ack_num=header['ack_num'],
-            protocol=Protocol(header['protocol']) if header.get('protocol') else None,
-            session_id=header.get('session_id', ''),
-            file_size=header.get('file_size', 0)
-        )
-        packet.checksum = header['checksum']
+        # packet = cls(
+        #     seq_num=header['seq_num'],
+        #     packet_type=PacketType(header['type']),
+        #     data=packet_data,
+        #     filename=header['filename'],
+        #     is_last=header['is_last'],
+        #     ack_num=header['ack_num'],
+        #     protocol=Protocol(header['protocol']) if header.get('protocol') else None,
+        #     session_id=header.get('session_id', ''),
+        #     file_size=header.get('file_size', 0)
+        # )
+        # packet.checksum = header['checksum']
         
         return packet
 
@@ -262,7 +290,7 @@ class AbstractSender(ABC):
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
                     data=chunk,
-                    filename=filename if chunk_index == 0 else '',
+                    # filename=filename if chunk_index == 0 else '',
                     is_last=is_last
                 )
                 packets.append(packet)

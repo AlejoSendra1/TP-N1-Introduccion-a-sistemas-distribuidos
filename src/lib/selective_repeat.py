@@ -182,9 +182,10 @@ class SelectiveRepeatSender(AbstractSender):
         # create INIT packet
         init_packet = RDTPacket(
             packet_type=PacketType.INIT,
-            filename=filename,
+            filename=filename, # TODO: sacar???
             file_size=file_size,
-            protocol=Protocol.SELECTIVE_REPEAT
+            protocol=Protocol.SELECTIVE_REPEAT,
+            data=filename
         )
         
         # longer timeout for handshake

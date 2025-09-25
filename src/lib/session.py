@@ -43,7 +43,7 @@ class RDTSession:
         self.protocol = init_packet.protocol
         self.filename = init_packet.filename
         self.file_size = init_packet.file_size
-        self.session_id = str(uuid.uuid4())
+        self.session_id = str(uuid.uuid4().int & 0xFFFFFFFF) # truncating uuid to 4 bytes
         
         self.logger.info(f"Accepting transfer for {self.filename} using {self.protocol.value}")
         
