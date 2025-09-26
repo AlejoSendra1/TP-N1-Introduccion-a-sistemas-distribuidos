@@ -43,7 +43,9 @@ class RDTSession:
         self.protocol = init_packet.protocol
         self.filename = init_packet.filename
         self.file_size = init_packet.file_size
-        self.session_id = str(uuid.uuid4().int & 0xFFFFFFFF) # truncating uuid to 4 bytes
+        # generate session ID as single byte (1-255, 0 reserved for INIT)
+        import random
+        self.session_id = str(random.randint(1, 255))
         
         self.logger.info(f"Accepting transfer for {self.filename} using {self.protocol.value}")
         

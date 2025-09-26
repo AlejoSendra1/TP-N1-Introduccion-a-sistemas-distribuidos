@@ -30,8 +30,7 @@ ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
 DATA_BUFFER_SIZE = 16384  # buffer size for DATA packets (2x SW_PACKET_SIZE for safety)
 
 # packet structure constants
-HEADER_SIZE = 38  # fixed header size in bytes
-
+HEADER_SIZE = 23  # fixed header size in bytes
 # global shutdown flag for graceful termination
 _shutdown_requested = False
 
@@ -167,16 +166,20 @@ class RDTPacket:
             # DATA/ACK/FIN/etc: payload = data
             payload = self.data
         
-        # prepare session_id as bytes (16 fixed characters, pad with zeros)
-        # for INIT packets, the session_id is empty (assigned by the server)
+        # prepare session_id as single byte (0-255)
+        # for INIT packets, the session_id is 0 (assigned by the server)
         if self.packet_type == PacketType.INIT:
-            session_id_bytes = b'\x00' * 16  # empty for INIT
+            session_id_byte = 0  # empty for INIT
         else:
-            session_id_bytes = (self.session_id or '').encode('utf-8')[:16].ljust(16, b'\x00')
+            # convert session_id string to integer (0-255)
+            try:
+                session_id_byte = int(self.session_id) if self.session_id else 0
+            except (ValueError, TypeError):
+                session_id_byte = 0
         
-        # fixed binary header: 38 bytes
+        # fixed binary header: 23 bytes
         header_bytes = struct.pack(
-            '!IIIIIBB16s',
+            '!IIIIIBBB',
             self.seq_num,             # I (4 bytes)
             self.checksum,            # I (4 bytes)
             self.ack_num,             # I (4 bytes)
@@ -184,7 +187,7 @@ class RDTPacket:
             self.file_size,           # I (4 bytes)
             self.packet_type.value,   # B (1 byte)
             self.protocol.value if self.protocol else 0,  # B (1 byte)
-            session_id_bytes          # 16s (16 bytes)
+            session_id_byte           # B (1 byte) - session ID (0-255)
         )
         
         return header_bytes + payload
@@ -199,9 +202,9 @@ class RDTPacket:
         
         # extract fixed header
         header_bytes = data[:HEADER_SIZE]
-        header = struct.unpack('!IIIIIBB16s', header_bytes)
+        header = struct.unpack('!IIIIIBBB', header_bytes)
         
-        # parse fields from header (new order)
+        # parse fields from header
         seq_num = header[0]
         checksum = header[1]
         ack_num = header[2]
@@ -209,10 +212,10 @@ class RDTPacket:
         file_size = header[4]
         packet_type = PacketType(header[5])
         protocol_value = header[6]
-        session_id_bytes = header[7]
+        session_id_byte = header[7]
         
-        # convert session_id from bytes to string
-        session_id = session_id_bytes.rstrip(b'\x00').decode('utf-8') if session_id_bytes != b'\x00' * 16 else ''
+        # convert session_id from byte to string
+        session_id = str(session_id_byte) if session_id_byte != 0 else ''
         protocol = Protocol(protocol_value) if protocol_value != 0 else None
         
         # extract payload
