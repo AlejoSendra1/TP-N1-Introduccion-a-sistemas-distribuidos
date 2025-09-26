@@ -7,6 +7,7 @@ import socket
 from typing import List, Tuple, Dict
 
 from lib.exceptions.channel_exceptions import ShutdownRequestException
+from lib.exceptions.protocol_exceptions import FailedToEstablishSessionException, FinSessionFailureException, FinSessionFailureException, NoActiveSessionException
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
     TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
@@ -29,7 +30,7 @@ class SelectiveRepeatSender(AbstractSender):
         
         self.socket.settimeout(0.1)  # non-blocking socket for checking timers
     
-    def _send_packets(self, packets: List[RDTPacket]) -> bool:
+    def _send_packets(self, packets: List[RDTPacket]):
         """Send packets using selective repeat protocol"""
         total_packets = len(packets)
         
@@ -39,8 +40,8 @@ class SelectiveRepeatSender(AbstractSender):
             file_size = len(packets) * PACKET_SIZE
             
             self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(filename, file_size):
-                return False
+            self._perform_handshake(filename, file_size)
+            
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
@@ -68,24 +69,21 @@ class SelectiveRepeatSender(AbstractSender):
                 self.nextseqnum += 1
             
             # handle ACKs and timeouts
-            if not self._handle_acks_and_timeouts():
-                return False
+            self._handle_acks_and_timeouts()
         
         self.logger.info("All packets sent and acknowledged successfully")
         
         # send FIN to close session
-        if self._send_fin():
+        try:
+            self._send_fin()
             self.logger.info("Session closed successfully")
-            return True
-        else:
-            self.logger.error("Failed to close session")
-            return False
+        except NoActiveSessionException:
+            self.logger.warning("No active session to close")
     
-    def _send_fin(self) -> bool:
+    def _send_fin(self):
         """Send FIN packet to close session"""
         if not self.session_id:
-            self.logger.warning("No session ID for FIN packet")
-            return True  # no session to close
+            raise NoActiveSessionException("SelectiveRepeatSender")
             
         fin_packet = RDTPacket(
             packet_type=PacketType.FIN,
@@ -109,21 +107,19 @@ class SelectiveRepeatSender(AbstractSender):
                     ack_packet.session_id == self.session_id):
                     self.logger.debug("Received FIN ACK")
                     self.socket.settimeout(original_timeout)
-                    return True
+                    return
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
             except socket.timeout:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error sending FIN: {e}")
+            finally:
                 self.socket.settimeout(original_timeout)
-                return False
         
         self.logger.error("Failed to close session with FIN")
         self.socket.settimeout(original_timeout)
-        return False
-    
+        raise FinSessionFailureException("Error closing session", self.dest_addr)
+
     def _handle_acks_and_timeouts(self):
         """Handle incoming ACKs and expired timers"""
         try:
@@ -149,9 +145,6 @@ class SelectiveRepeatSender(AbstractSender):
             
         except socket.timeout:
             pass  # no ACK received, continue
-        except Exception as e:
-            self.logger.error(f"Error receiving ACK: {e}")
-            return False
         
         # check for expired timers and retransmit
         expired_packets = []
@@ -169,9 +162,8 @@ class SelectiveRepeatSender(AbstractSender):
             # reset timer
             timer.reset()
         
-        return True
     
-    def _perform_handshake(self, filename: str, file_size: int) -> bool:
+    def _perform_handshake(self, filename: str, file_size: int):
         """Perform handshake with server"""
         # create INIT packet
         init_packet = RDTPacket(
@@ -192,7 +184,7 @@ class SelectiveRepeatSender(AbstractSender):
                 self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
                 
                 # wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_data, _ = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 accept_packet = RDTPacket.from_bytes(accept_data)
                 
                 if (accept_packet.packet_type == PacketType.ACCEPT and 
@@ -202,18 +194,16 @@ class SelectiveRepeatSender(AbstractSender):
                     self.session_id = accept_packet.session_id
                     self.logger.info(f"Handshake successful, session ID: {self.session_id}")
                     self.socket.settimeout(original_timeout)
-                    return True
+                    return 
                     
             except socket.timeout:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
+            finally:
                 self.socket.settimeout(original_timeout)
-                return False
                 
         self.logger.error("Failed to establish session")
         self.socket.settimeout(original_timeout)
-        return False
+        raise FailedToEstablishSessionException("Error in handshake", self.dest_addr)
 
 
 class SelectiveRepeatReceiver(AbstractReceiver):

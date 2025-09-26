@@ -51,7 +51,7 @@ class PacketType(Enum):
     ACK = 2
     
     # Handshake
-    INIT = 3      # Initialize transfer
+    INIT = 3      # Initialize transfer    TODO: change name to SYN?
     ACCEPT = 4    # Accept transfer
     
     # Control
@@ -225,7 +225,7 @@ class AbstractSender(ABC):
             self.logger.error(f"File not found: {filepath}")
             return False
         except Exception as e:
-            self.logger.error(f"Error during file transfer: {e}")
+            self.logger.error(f"Error during file transfer - {e}")
             return False
     
     def _validate_file(self, filepath: str) -> bool:
