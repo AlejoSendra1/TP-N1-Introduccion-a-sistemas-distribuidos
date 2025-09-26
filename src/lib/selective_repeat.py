@@ -321,12 +321,6 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
                 
-                if delivered_packet.is_last:
-                    self.logger.info(f"File {filename} received completely")
-                    is_complete = True
-                    # we need to send ACK for the last packet
-                    # the ACK will be sent by the normal flow below
-                
                 self.rcv_base += 1
             
             if is_complete:

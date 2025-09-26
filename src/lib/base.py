@@ -30,7 +30,7 @@ ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
 DATA_BUFFER_SIZE = 16384  # buffer size for DATA packets (2x SW_PACKET_SIZE for safety)
 
 # packet structure constants
-HEADER_SIZE = 39  # fixed header size in bytes
+HEADER_SIZE = 38  # fixed header size in bytes
 
 # global shutdown flag for graceful termination
 _shutdown_requested = False
@@ -112,14 +112,13 @@ class RDTPacket:
     """RDT packet with error detection and metadata"""
     
     def __init__(self, seq_num: int = 0, packet_type: PacketType = PacketType.DATA, 
-                 data: bytes = b'', filename: str = None, is_last: bool = False, 
+                 data: bytes = b'', filename: str = None, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
         self.seq_num = seq_num
         self.packet_type = packet_type
         self.data = data
         self.filename = filename
-        self.is_last = is_last
         self.ack_num = ack_num
         self.protocol = protocol  # protocol for INIT packet
         self.session_id = session_id  # session identifier
@@ -136,7 +135,7 @@ class RDTPacket:
             checksum += sum(self.data)
         
         checksum += self.seq_num + self.packet_type.value + self.ack_num
-        checksum += int(self.is_last) + self.file_size
+        checksum += self.file_size
         
         # filename if exists
         if self.filename:
@@ -175,18 +174,17 @@ class RDTPacket:
         else:
             session_id_bytes = (self.session_id or '').encode('utf-8')[:16].ljust(16, b'\x00')
         
-        # fixed binary header: 39 bytes
+        # fixed binary header: 38 bytes
         header_bytes = struct.pack(
-            '!IBI?II16sBI',
+            '!IIIIIBB16s',
             self.seq_num,             # I (4 bytes)
-            self.packet_type.value,   # B (1 byte)
             self.checksum,            # I (4 bytes)
-            self.is_last,             # ? (1 byte)
             self.ack_num,             # I (4 bytes)
             len(payload),             # I (4 bytes) - payload length
-            session_id_bytes,         # 16s (16 bytes)
+            self.file_size,           # I (4 bytes)
+            self.packet_type.value,   # B (1 byte)
             self.protocol.value if self.protocol else 0,  # B (1 byte)
-            self.file_size            # I (4 bytes)
+            session_id_bytes          # 16s (16 bytes)
         )
         
         return header_bytes + payload
@@ -201,18 +199,17 @@ class RDTPacket:
         
         # extract fixed header
         header_bytes = data[:HEADER_SIZE]
-        header = struct.unpack('!IBI?II16sBI', header_bytes)
+        header = struct.unpack('!IIIIIBB16s', header_bytes)
         
-        # parse fields from header
+        # parse fields from header (new order)
         seq_num = header[0]
-        packet_type = PacketType(header[1])
-        checksum = header[2]
-        is_last = header[3]
-        ack_num = header[4]
-        payload_length = header[5]
-        session_id_bytes = header[6]
-        protocol_value = header[7]
-        file_size = header[8]
+        checksum = header[1]
+        ack_num = header[2]
+        payload_length = header[3]
+        file_size = header[4]
+        packet_type = PacketType(header[5])
+        protocol_value = header[6]
+        session_id_bytes = header[7]
         
         # convert session_id from bytes to string
         session_id = session_id_bytes.rstrip(b'\x00').decode('utf-8') if session_id_bytes != b'\x00' * 16 else ''
@@ -239,7 +236,6 @@ class RDTPacket:
             packet_type=packet_type,
             data=packet_data,
             filename=filename,
-            is_last=is_last,
             ack_num=ack_num,
             protocol=protocol,
             session_id=session_id,
@@ -323,26 +319,14 @@ class AbstractSender(ABC):
                 if not chunk:
                     break
                 
-                # check if this is the last chunk by trying to read one more byte
-                next_byte = file.read(1)
-                is_last = len(next_byte) == 0
-                
-                # if not last, put the byte back
-                if not is_last:
-                    file.seek(file.tell() - 1)
-                
                 packet = RDTPacket(
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
-                    data=chunk,
-                    is_last=is_last
+                    data=chunk
                     # removed filename, only specified in INIT packet
                 )
                 packets.append(packet)
                 chunk_index += 1
-                
-                if is_last:
-                    break
         
         return packets
     

@@ -33,25 +33,13 @@ class RDTSender(AbstractSender):
                 if not chunk:
                     break
                 
-                # check if this is the last chunk by trying to read one more byte
-                next_byte = file.read(1)
-                is_last = len(next_byte) == 0
-                
-                # if not last, put the byte back
-                if not is_last:
-                    file.seek(file.tell() - 1)
-                
                 packet = RDTPacket(
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
-                    data=chunk,
-                    is_last=is_last
+                    data=chunk
                 )
                 packets.append(packet)
                 chunk_index += 1
-                
-                if is_last:
-                    break
         
         return packets
     
@@ -77,11 +65,6 @@ class RDTSender(AbstractSender):
             if self._send_packet_reliable(packet):
                 self.logger.debug(f"Packet {self.seq_num} sent successfully")
                 self.seq_num = 1 - self.seq_num  # alternate between 0 and 1
-                
-                # if this was the last packet, we're done with data transfer
-                if packet.is_last:
-                    self.logger.info("Last packet sent and acknowledged")
-                    break
             else:
                 self.logger.error(f"Failed to send packet {self.seq_num}")
                 return False
@@ -255,10 +238,6 @@ class RDTReceiver(AbstractReceiver):
         self.socket.sendto(ack.to_bytes(), addr)
         self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
         
-        if first_packet.is_last:
-            self.logger.info(f"File {filename} received completely in one packet")
-            return True, file_data
-        
         # continue receiving remaining packets
         self.expected_seq = 1 - self.expected_seq
         success, remaining_data = self._continue_receiving(addr)
@@ -287,6 +266,11 @@ class RDTReceiver(AbstractReceiver):
                 
                 packet = RDTPacket.from_bytes(data)
                 
+                # check if this is a FIN packet
+                if packet.packet_type == PacketType.FIN:
+                    self.logger.info("Received FIN packet, file transfer complete")
+                    return True, file_data
+                
                 if not packet.verify_checksum():
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
                     continue
@@ -301,10 +285,6 @@ class RDTReceiver(AbstractReceiver):
                     
                     self.socket.sendto(ack.to_bytes(), addr)
                     self.logger.debug(f"Sent ACK for packet {packet.seq_num}")
-                    
-                    if packet.is_last:
-                        self.logger.info("File received completely")
-                        return True, file_data
                     
                     # prepare for next packet
                     self.expected_seq = 1 - self.expected_seq
