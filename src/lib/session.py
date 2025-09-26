@@ -2,12 +2,13 @@
 Session management for RDT protocols
 Handles handshake and file transfers
 """
-
+import argparse
 import socket
+import sys
 import uuid
 from typing import Tuple, Optional
 from .base import RDTPacket, PacketType, Protocol, DATA_BUFFER_SIZE
-from .factory import create_receiver
+from .factory import create_receiver, create_sender
 
 
 class RDTSession:
@@ -92,8 +93,8 @@ class RDTSession:
                 return False, b''
                 
             # let receiver handle the rest
-            success, file_data = receiver.receive_file_with_first_packet(first_packet, self.client_addr)
-            
+            success, file_data = receiver.receive_file_with_first_packet(first_packet, self.client_addr)          
+
             if success:
                 # wait for FIN packet and send FIN ACK
                 self._handle_fin()
@@ -152,6 +153,16 @@ class RDTSession:
         except Exception as e:
             self.logger.error(f"Failed to send rejection: {e}")
 
+    def send_file(self,source):
+        sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
+
+        if sender.send_file(source, self.filename):
+            self.logger.info("File uploaded successfully")
+            self._handle_fin()
+        else:
+            self.logger.error("File upload failed")
+            sys.exit(1)
+
 
 class RDTServer:
     """
@@ -193,11 +204,13 @@ class RDTServer:
             if packet.packet_type == PacketType.INIT:
                 # TODO: DOWNLOAD IMPLEMENTATION
                 # Detect transfer type based on file_size:
-                # if packet.file_size == 0:
-                #     return DownloadRequest(self.sock, self.logger, packet, addr)
-                # else:
-                #     return TransferRequest(self.sock, self.logger, packet, addr)
-                return TransferRequest(self.sock, self.logger, packet, addr)
+                if packet.file_size == 0:
+                    self.logger.info('devolviendo download req en wait for transfer') ##sacar
+                    return DownloadRequest(self.sock, self.logger, packet, addr)
+                else:
+                    self.logger.info('devolviendo transfer req en wait for transfer')##sacar
+                    return TransferRequest(self.sock, self.logger, packet, addr)
+                
             else:
                 self.logger.debug(f"Ignoring non-INIT packet: {packet.packet_type}")
                 return None
@@ -234,18 +247,6 @@ class TransferRequest:
     Represents an incoming transfer request
     Provides simple interface for server to accept/reject
     
-    TODO: DOWNLOAD IMPLEMENTATION
-    create similar DownloadRequest class:
-    class DownloadRequest:
-        def __init__(self, sock, logger, init_packet, client_addr):
-            # Similar to TransferRequest but for download
-        
-        def accept(self, filepath: str) -> bool:
-            # 1) perform handshake (INIT -> ACCEPT)
-            # 2) create sender using factory.create_sender()
-            # 3) send file using sender.send_file(filepath, filename)
-            # 4) handle FIN/FIN-ACK
-            # 5) return success/failure
     """
     
     def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
@@ -279,8 +280,11 @@ class TransferRequest:
         Returns:
             Tuple[bool, bytes] or None if handshake fails
         """
+        self.logger.info("a punto de aceptar el transfer") ###
+
         if self.session.accept_transfer(self.init_packet, self.client_addr):
             self._session_id = self.session.session_id  # cache for future use
+            self.logger.info("se acepto el transfer") ###
             return self.session.receive_file()
         return None
     
@@ -297,6 +301,132 @@ class TransferRequest:
     def reject(self, reason: str = "Transfer rejected"):
         """Reject the transfer request"""
         self.session.reject_transfer(self.client_addr, reason)
+
+    @staticmethod
+    def extract_session_id(packet_data: bytes) -> Optional[str]:
+        """
+        Extract session ID from raw packet data without full parsing
+        Useful for future concurrent server implementations to route packets
+        
+        Args:
+            packet_data: Raw packet bytes
+            
+        Returns:
+            Session ID or None if packet doesn't contain one
+        """
+        try:
+            # Quick extraction without full validation
+            # Session ID is at a fixed offset in the packet structure
+            packet = RDTPacket.from_bytes(packet_data)
+            return packet.session_id
+        except Exception:
+            return None
+
+
+class DownloadRequest:
+    """
+    Represents an incoming download request
+    Provides simple interface for server to accept/reject and send files
+    
+    Similar to TransferRequest but for download - server acts as sender
+
+        TODO: DOWNLOAD IMPLEMENTATION
+    create similar DownloadRequest class:
+    class DownloadRequest:
+        def __init__(self, sock, logger, init_packet, client_addr):
+            # Similar to TransferRequest but for download
+        
+        def accept(self, filepath: str) -> bool:
+            # 1) perform handshake (INIT -> ACCEPT)
+            # 2) create sender using factory.create_sender()
+            # 3) send file using sender.send_file(filepath, filename)
+            # 4) handle FIN/FIN-ACK
+            # 5) return success/failure
+    """
+    
+    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
+        self.sock = sock
+        self.logger = logger
+        self.init_packet = init_packet
+        self.client_addr = client_addr
+        self.session = RDTSession(sock, logger)
+        self._session_id = None  # cache session ID after handshake
+        
+    @property
+    def filename(self) -> str:
+        """The filename requested by the client"""
+        return self.init_packet.filename
+        
+    @property
+    def protocol(self) -> Protocol:
+        """The protocol requested by the client"""
+        return self.init_packet.protocol
+        
+    @property
+    def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
+        return self.client_addr
+        
+    def accept(self, filepath: str) -> bool:
+        """
+        Do the handshake and set up for receiving incoming bytes
+        
+        Args:
+            filepath: Local path to the file to send
+        
+        Returns:
+            True if file was sent successfully, False otherwise
+        """
+        if self.session.accept_transfer(self.init_packet, self.client_addr):
+            self._session_id = self.session.session_id  # cache for future use
+            self.session.send_file(filepath)
+            return True
+        return False
+        
+    
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+        Useful for future concurrent server implementations
+        
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        return self._session_id
+        
+    def reject(self, reason: str = "Download request rejected"):
+        """
+        Reject the download request
+        
+        Args:
+            reason: Reason for rejection to send to client
+        """
+        try:
+            self.session.reject_download_request(self.client_addr, reason)
+            self.logger.info(f"Rejected download request from {self.client_addr}: {reason}")
+        except Exception as e:
+            self.logger.error(f"Error rejecting download request: {e}")
+    
+    def get_file_info(self, filepath: str) -> Optional[Tuple[str, int]]:
+        """
+        Get file information for the requested file
+        
+        Args:
+            filepath: Path to the file
+            
+        Returns:
+            Tuple of (filename, file_size) or None if file doesn't exist
+        """
+        try:
+            if not self.file_exists(filepath):
+                return None
+            
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath)
+            return filename, file_size
+        except Exception as e:
+            self.logger.error(f"Error getting file info for {filepath}: {e}")
+            return None
 
     @staticmethod
     def extract_session_id(packet_data: bytes) -> Optional[str]:

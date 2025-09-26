@@ -273,11 +273,58 @@ class AbstractSender(ABC):
         
         return packets
     
+    def close_connection(self):
+        self.socket.close()
+        self.socket = None
+    
+    ##############
+    def send_file_to_client(self, filepath: str, filename: str) -> bool:
+        """Template method for sending a file"""
+        try:
+            # validate file (basic, maybe should be more strict or throw an exception to handle)
+            if not self._validate_file(filepath):
+                return False
+            
+            # prepare for transfer
+            packets = self._prepare_packets(filepath, filename)
+            if not packets:
+                self.logger.warning("File is empty")
+                return True
+            
+            self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
+            
+            # send packets using specific protocol
+            result = self._send_packets(packets)
+            
+            if result:
+                self.logger.info("File transfer completed successfully")
+            else:
+                self.logger.error("File transfer failed")
+            
+            return result
+            
+        # TODO: DOWNLOAD IMPLEMENTATION
+        # we should add a method to receive downloaded files from server:
+        # def receive_downloaded_file(self) -> bytes:
+        #     """Receive file after download request - must be implemented by subclasses"""
+        #     # 1. Wait for DATA packets from server
+        #     # 2. Send ACKs for received packets
+        #     # 3. Handle retransmissions and timeouts
+        #     # 4. Return complete file data
+        #     pass
+            
+        except FileNotFoundError:
+            self.logger.error(f"File not found: {filepath}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error during file transfer: {e}")
+            return False
+    ###########
+
     @abstractmethod
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
         """Send packets using specific protocol - must be implemented by subclasses"""
         pass
-
 
 class AbstractReceiver(ABC):
     """Abstract base class for RDT receivers"""
@@ -290,3 +337,4 @@ class AbstractReceiver(ABC):
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
+

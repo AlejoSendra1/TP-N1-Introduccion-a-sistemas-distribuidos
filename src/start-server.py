@@ -3,7 +3,11 @@ import argparse
 import os
 import logging
 import signal
+import sys
 from lib import RDTServer
+from lib.factory import create_sender
+from lib.session import DownloadRequest, TransferRequest
+from lib.base import Protocol
 
 class GracefulKiller:
     """Handles graceful shutdown on SIGINT and SIGTERM"""
@@ -90,41 +94,46 @@ def main():
             # handle concurrent requests
             
             if request:
-                logger.info(f"Transfer request from {request.source_address}: {request.filename}")
                 
-                # TODO: DOWNLOAD IMPLEMENTATION
+                # INPROGRESS: DOWNLOAD IMPLEMENTATION
                 # handle different request types:
-                # if isinstance(request, DownloadRequest):
-                #     # handle download request
-                #     filepath = os.path.join(args.storage, request.filename)
-                #     if os.path.exists(filepath):
-                #         success = request.accept(filepath)  # send file to client
-                #         if success:
-                #             logger.info(f"File sent: {filepath}")
-                #         else:
-                #             logger.error("Download failed")
-                #     else:
-                #         logger.error(f"File not found: {filepath}")
-                #         request.reject("File not found")
-                # elif isinstance(request, TransferRequest):
-                #     # handle upload request (current logic)
-                
-                # CURRENT LOGIC (UPLOAD ONLY):
-                # simple policy: accept all transfers
-                result = request.accept()
-                
-                if result:
-                    success, file_data = result
-                    if success:
-                        # save the file
-                        filepath = os.path.join(args.storage, request.filename)
-                        with open(filepath, 'wb') as f:
-                            f.write(file_data)
-                        logger.info(f"File saved: {filepath}")
+                if isinstance(request, DownloadRequest):
+                    logger.info(f"Download request from {request.source_address}: {request.filename}")
+                    # handle download request
+
+                    filepath = os.path.join(args.storage, request.filename)
+                    if os.path.exists(filepath):
+                        success = request.accept(filepath)  # send file to client
+                        if success:
+                            logger.info(f"Connection setuped succesfully")
+                        else:
+                            logger.error("Connection error")
+
+                        
                     else:
-                        logger.error("Transfer failed")
-                else:
-                    logger.error("Handshake failed")
+                        logger.error(f"File not found: {filepath}")
+                        request.reject("File not found")
+                elif isinstance(request, TransferRequest):
+                    logger.info(f"Transfer request from {request.source_address}: {request.filename}")
+
+                    # handle upload request (current logic)
+                
+                    # CURRENT LOGIC (UPLOAD ONLY):
+                    # simple policy: accept all transfers
+                    result = request.accept()
+                    
+                    if result:
+                        success, file_data = result
+                        if success:
+                            # save the file
+                            filepath = os.path.join(args.storage, request.filename)
+                            with open(filepath, 'wb') as f:
+                                f.write(file_data)
+                            logger.info(f"File saved: {filepath}")
+                        else:
+                            logger.error("Transfer failed")
+                    else:
+                        logger.error("Handshake failed")
     
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
