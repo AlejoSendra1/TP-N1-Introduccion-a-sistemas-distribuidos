@@ -188,11 +188,7 @@ class RDTServer:
         
         Returns:
             TransferRequest object or None if timeout/error
-            
-        TODO: DOWNLOAD IMPLEMENTATION
-        Modify to detect transfer type and return appropriate request:
-        - UPLOAD: init_packet.file_size > 0 -> return TransferRequest
-        - DOWNLOAD: init_packet.file_size == 0 -> return DownloadRequest
+
         """
         if timeout:
             self.sock.settimeout(timeout)

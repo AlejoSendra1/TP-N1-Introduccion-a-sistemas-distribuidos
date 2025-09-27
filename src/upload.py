@@ -5,6 +5,7 @@ import logging
 import signal
 from socket import socket, AF_INET, SOCK_DGRAM
 from lib import create_sender, request_shutdown, Protocol
+from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES, PacketType, RDTPacket
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -100,6 +101,10 @@ def main():
         sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
         logger.debug(f"Using {protocol.value} protocol")
         
+        # perform handshake first
+        if not sender.perform_handshake(args.name, os.path.getsize(args.src)):
+            return False
+
         # send file using selected RDT protocol
         if sender.send_file(args.src, args.name):
             logger.info("File uploaded successfully")
