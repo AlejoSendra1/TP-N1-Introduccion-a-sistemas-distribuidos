@@ -1,3 +1,6 @@
 data
 .idea/*
 .vscode/*
+enunciado.txt
+*.pyc
+/storage
