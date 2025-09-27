@@ -3,6 +3,7 @@ Session management for RDT protocols
 Handles handshake and file transfers
 """
 import argparse
+import os
 import socket
 import sys
 import uuid
@@ -110,6 +111,7 @@ class RDTSession:
     
     def _handle_fin(self):
         """Handle FIN packet and send FIN ACK"""
+        self.logger.debug("esperando fin")
         try:
             # wait for FIN packet with timeout
             self.sock.settimeout(5.0)
@@ -135,7 +137,7 @@ class RDTSession:
                 self.filename = None
                 self.file_size = None
             else:
-                self.logger.warning(f"Invalid FIN packet from {addr}")
+                self.logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{self.session_id},{self.client_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
                 
         except socket.timeout:
             self.logger.warning("No FIN received, session may be incomplete")

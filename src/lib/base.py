@@ -276,50 +276,6 @@ class AbstractSender(ABC):
     def close_connection(self):
         self.socket.close()
         self.socket = None
-    
-    ##############
-    def send_file_to_client(self, filepath: str, filename: str) -> bool:
-        """Template method for sending a file"""
-        try:
-            # validate file (basic, maybe should be more strict or throw an exception to handle)
-            if not self._validate_file(filepath):
-                return False
-            
-            # prepare for transfer
-            packets = self._prepare_packets(filepath, filename)
-            if not packets:
-                self.logger.warning("File is empty")
-                return True
-            
-            self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
-            
-            # send packets using specific protocol
-            result = self._send_packets(packets)
-            
-            if result:
-                self.logger.info("File transfer completed successfully")
-            else:
-                self.logger.error("File transfer failed")
-            
-            return result
-            
-        # TODO: DOWNLOAD IMPLEMENTATION
-        # we should add a method to receive downloaded files from server:
-        # def receive_downloaded_file(self) -> bytes:
-        #     """Receive file after download request - must be implemented by subclasses"""
-        #     # 1. Wait for DATA packets from server
-        #     # 2. Send ACKs for received packets
-        #     # 3. Handle retransmissions and timeouts
-        #     # 4. Return complete file data
-        #     pass
-            
-        except FileNotFoundError:
-            self.logger.error(f"File not found: {filepath}")
-            return False
-        except Exception as e:
-            self.logger.error(f"Error during file transfer: {e}")
-            return False
-    ###########
 
     def perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server"""

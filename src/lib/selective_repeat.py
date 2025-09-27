@@ -36,9 +36,7 @@ class SelectiveRepeatSender(AbstractSender):
             filename = packets[0].filename
             file_size = len(packets) * PACKET_SIZE
             
-            self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(filename, file_size):
-                return False
+            
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:

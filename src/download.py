@@ -161,6 +161,7 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
         logger.info("Starting file reception...")
         success, file_data = receiver.receive_file_with_first_packet(first_packet, server_addr)
         
+        
         if success:
             logger.info("File received successfully")
         else:
@@ -174,6 +175,36 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     except Exception as e:
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
+
+    """def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+        
+        logger.debug("esperando fin")
+        try:
+            # wait for FIN packet with timeout
+            sock.settimeout(5.0)
+            data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
+            fin_packet = RDTPacket.from_bytes(data)
+            
+            if (fin_packet.packet_type == PacketType.FIN and 
+                fin_packet.session_id == session_id and
+                addr == serv_addr):
+                
+                # send FIN ACK
+                fin_ack = RDTPacket(
+                    packet_type=PacketType.ACK,
+                    session_id=session_id
+                )
+                sock.sendto(fin_ack.to_bytes(), addr)
+                logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
+                
+            else:
+                logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{client_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
+                
+        except socket.timeout:
+            logger.warning("No FIN received, session may be incomplete")
+        except Exception as e:
+            logger.error(f"Error handling FIN: {e}")
+    """
 
 def main():
     # parse command line arguments
@@ -223,7 +254,9 @@ def main():
         if not success:
             logger.error("Failed to download file")
             sys.exit(1)
-        
+
+        #handle_fin(clientSocket,server_addr,session_id,logger)
+
         # Step 3: Save file to disk
         try:
             # Create dst directory if it doesn't exist
@@ -253,118 +286,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-"""import os
-import argparse
-import logging
-from socket import socket, AF_INET, SOCK_DGRAM
-from lib import Protocol
-from lib.base import PacketType, RDTPacket
-from lib.factory import create_sender, create_receiver
-
-DATA_BUFFER_SIZE = 16384  # buffer size for DATA packets (2x SW_PACKET_SIZE for safety)
-
-def setup_logging(verbose, quiet):
-    # logging format
-    log_format = '%(asctime)s - %(levelname)s - %(message)s'
-    
-    # logging level based on verbosity flags
-    if verbose:
-        level = logging.DEBUG
-    elif quiet:
-        level = logging.WARNING
-    else:
-        level = logging.INFO
-    
-    # logging configuration
-    logging.basicConfig(
-        level=level,
-        format=log_format,
-    handlers=[logging.StreamHandler()]
-        
-    )
-    
-    return logging.getLogger(__name__)
-
-def setup_argparse():
-    parser = argparse.ArgumentParser(description='Download file from server')
-    
-    # verbosity group (mutually exclusive)
-    verbosity_group = parser.add_mutually_exclusive_group()
-    verbosity_group.add_argument('-v', '--verbose', action='store_true',
-                               help='increase dst verbosity')
-    verbosity_group.add_argument('-q', '--quiet', action='store_true',
-                               help='decrease dst verbosity')
-    
-    # server configuration
-    parser.add_argument('-H', '--host', type=str, default='127.0.0.1',
-                       help='server IP address')
-    parser.add_argument('-p', '--port', type=int, default=49153,
-                       help='server port')
-    
-    # file configuration
-    parser.add_argument('-d', '--dst', type=str, required=True,
-                       help='destination file path')
-    parser.add_argument('-n', '--name', type=str, required=True,
-                       help='file name to download')
-    
-    # protocol configuration
-    parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
-                       help='error recovery protocol')
-    
-    return parser.parse_args()
-
-def main():
-    args = setup_argparse()
-    
-    # setup logging
-    logger = setup_logging(args.verbose, args.quiet)
-    
-    # ensure destination directory exists
-    dst_dir = os.path.dirname(args.dst)
-    if dst_dir and not os.path.exists(dst_dir):
-        logger.info(f"Creating destination directory: {dst_dir}")
-        os.makedirs(dst_dir)
-    
-    # setup socket
-    client_socket = socket(AF_INET, SOCK_DGRAM)
-    logger.debug("Socket created")
-    
-    logger.info(f"Downloading file '{args.name}' from {args.host}:{args.port}")
-    logger.debug(f"Saving to: {args.dst}")
-    logger.debug(f"Using protocol: {args.protocol}")
-    
-    # TODO: DOWNLOAD IMPLEMENTATION
-    # this is a placeholder with actual download logic using the library:
-    # 
-    # 1) create sender using factory:
-    sender = create_sender(Protocol(args.protocol), client_socket, (args.host, args.port), logger)
-    # 
-    # 2) perform handshake (INIT with file_size=0 for download or BETTER IF PACKET TYPE IS = PacketType.REQUEST):
-    success = sender._perform_handshake(args.name, 0)  # filename, file_size=0
-    # 
-    # 3) receive file data:
-    receiver = create_receiver(Protocol(args.protocol), client_socket, logger)
-
-    if success:
-        file_data = receiver._continue_receiving((args.host, args.port))# T
-    #        
-    #         4) Save file:
-        with open(args.dst, 'wb') as f:
-            f.write(file_data)
-        logger.info(f"File downloaded successfully: {args.dst}")
-    else:
-        logger.error("Download failed")
-    # 
-    # 5) close socket and handle FIN/FIN-ACK automatically
-    
-
-if __name__ == '__main__':
-    main()
-"""

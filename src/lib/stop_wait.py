@@ -54,6 +54,7 @@ class RDTSender(AbstractSender):
                 if is_last:
                     break
         
+        self.logger.debug(f"se van a mandar {len(packets)} packets")#
         return packets
     
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
@@ -70,7 +71,7 @@ class RDTSender(AbstractSender):
             packet.session_id = self.session_id  # add session ID to all packets
             packet.calculate_checksum()  # recalculate after changes
             
-            self.logger.info(f"se envio: {packet.seq_num} tipo: {packet.packet_type} , data:{packet.data}")
+            self.logger.info(f"se envio: {packet.seq_num} tipo: {packet.packet_type} , es ultimo:{packet.is_last}")
             if self._send_packet_reliable(packet):
                 self.logger.debug(f"Packet {self.seq_num} sent successfully")
                 self.seq_num = 1 - self.seq_num  # alternate between 0 and 1
@@ -204,6 +205,7 @@ class RDTReceiver(AbstractReceiver):
         self.socket.sendto(ack.to_bytes(), addr)
         self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
         
+        
         if first_packet.is_last:
             self.logger.info(f"File {filename} received completely in one packet")
             return True, file_data
@@ -228,9 +230,11 @@ class RDTReceiver(AbstractReceiver):
                 self.logger.info("File reception cancelled due to shutdown request")
                 return False, b''
             
+            counter = 1
             try:
                 data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
-                
+                counter+=1
+                self.logger.debug(f" se recibieron {counter} packets")#
             
                 if client_addr != addr:
                     self.logger.warning(f"Received packet from unexpected address: {client_addr}")
@@ -242,7 +246,7 @@ class RDTReceiver(AbstractReceiver):
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
                     continue
                 
-                self.logger.info(f"se recibio: {packet.seq_num} tipo: {packet.packet_type} , data:{packet.data}")
+                self.logger.info(f"se recibio: {packet.seq_num} tipo: {packet.packet_type} , es ultimo:{packet.is_last}")
                 if packet.seq_num == self.expected_seq:
                     # correct packet received
                     file_data += packet.data
