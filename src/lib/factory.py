@@ -36,8 +36,6 @@ def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[st
         return RDTSender(socket, dest_addr, logger)
     elif protocol == Protocol.SELECTIVE_REPEAT:
         return SelectiveRepeatSender(socket, dest_addr, logger)
-    else:
-        raise ValueError(f"Unknown protocol: {protocol}")
 
 
 def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> AbstractReceiver:
@@ -56,7 +54,7 @@ def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> Abstra
         ValueError: If protocol is not supported
     """
     if protocol == Protocol.STOP_WAIT:
-        return RDTReceiver(socket, logger)
+        return RDTReceiver(socket, logger) # TODO: rename to StopWaitReceiver
     elif protocol == Protocol.SELECTIVE_REPEAT:
         return SelectiveRepeatReceiver(socket, logger)
     else:

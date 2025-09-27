@@ -119,7 +119,7 @@ class SelectiveRepeatSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -153,7 +153,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # session ID should already be set from handshake
             
-        except socket.timeout:
+        except socket.timeout as e:
             pass  # no ACK received, continue
         except Exception as e:
             self.logger.error(f"Error receiving ACK: {e}")
@@ -221,7 +221,7 @@ class SelectiveRepeatSender(AbstractSender):
                     self.socket.settimeout(original_timeout)
                     return True
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
                 self.logger.error(f"Error during handshake: {e}")
@@ -278,7 +278,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 
                 # don't return here - continue until FIN
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")

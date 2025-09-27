@@ -98,7 +98,6 @@ def main():
         # create appropriate sender using factory method
         protocol = Protocol.from_string(args.protocol)
         sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
-        logger.debug(f"Using {protocol} protocol")
         
         # send file using selected RDT protocol
         if sender.send_file(args.src, args.name):
@@ -107,7 +106,7 @@ def main():
             logger.error("File upload failed")
             sys.exit(1)
             
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as e:
         logger.info("Upload cancelled by user")
         sys.exit(0)
     except Exception as e:

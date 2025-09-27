@@ -7,7 +7,7 @@ import socket
 from typing import List, Tuple
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
-    MAX_RETRIES, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
+    MAX_RETRIES, ACK_BUFFER_SIZE, SW_DATA_BUFFER_SIZE, 
     SW_PACKET_SIZE, SW_TIMEOUT, HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
 )
 
@@ -113,7 +113,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -150,7 +150,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending packet {packet.seq_num}: {e}")
@@ -196,7 +196,7 @@ class RDTSender(AbstractSender):
                     self.socket.settimeout(original_timeout)
                     return True
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
                 self.logger.error(f"Error during handshake: {e}")
@@ -229,7 +229,6 @@ class RDTReceiver(AbstractReceiver):
             return False, b''
         
         file_data = first_packet.data
-        filename = first_packet.filename
         
         # send ACK for first packet (include session_id if present)
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
@@ -258,7 +257,7 @@ class RDTReceiver(AbstractReceiver):
                 return False, b''
             
             try:
-                data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
+                data, client_addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
                 
                 if client_addr != addr:
                     self.logger.warning(f"Received packet from unexpected address: {client_addr}")
@@ -298,7 +297,7 @@ class RDTReceiver(AbstractReceiver):
                     
                     self.socket.sendto(ack.to_bytes(), addr)
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug("Timeout waiting for packet")
                 continue
             except Exception as e:

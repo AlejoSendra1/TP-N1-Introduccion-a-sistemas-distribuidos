@@ -24,13 +24,17 @@ SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
 # timeout constants for critical operations
 HANDSHAKE_TIMEOUT = 1 # 1s timeout for INIT/ACCEPT handshake
 FIN_TIMEOUT = 1  # 1s timeout for FIN/FIN-ACK handshake
-
-# buffer sizes
-ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
-DATA_BUFFER_SIZE = 16384  # buffer size for DATA packets (2x SW_PACKET_SIZE for safety)
+FIRST_DATA_PACKET_TIMEOUT = 5.0  # 5s timeout for first DATA packet
 
 # packet structure constants
 HEADER_SIZE = 23  # fixed header size in bytes
+
+# buffer sizes
+ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
+DATA_BUFFER_SIZE = HEADER_SIZE + PACKET_SIZE  # buffer size for DATA packets (Selective Repeat)
+SW_DATA_BUFFER_SIZE = HEADER_SIZE + SW_PACKET_SIZE  # buffer size for DATA packets (Stop & Wait)
+INIT_PACKET_SIZE = 1024  # buffer size for INIT packets
+
 # global shutdown flag for graceful termination
 _shutdown_requested = False
 
@@ -174,7 +178,7 @@ class RDTPacket:
             # convert session_id string to integer (0-255)
             try:
                 session_id_byte = int(self.session_id) if self.session_id else 0
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
                 session_id_byte = 0
         
         # fixed binary header: 23 bytes
@@ -251,6 +255,35 @@ class RDTPacket:
         return packet
 
 
+def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -> Optional[Tuple[RDTPacket, Tuple[str, int]]]:
+    """
+    Wait for and receive an INIT packet from any client
+    
+    Args:
+        sock: Socket to listen on
+        timeout: Optional timeout in seconds
+        
+    Returns:
+        Tuple[RDTPacket, client_addr] or None if timeout/error/no INIT packet
+    """
+    if timeout:
+        sock.settimeout(timeout)
+    
+    try:
+        data, addr = sock.recvfrom(INIT_PACKET_SIZE)  # INIT packets are small; TODO: maybe use a smaller buffer size for INIT packets (because file name cannot be that large)
+        packet = RDTPacket.from_bytes(data) 
+        
+        if packet.packet_type == PacketType.INIT:
+            return packet, addr
+        else:
+            return None  # Not an INIT packet
+            
+    except socket.timeout as e:
+        return None
+    except Exception as e:
+        return None
+
+
 class AbstractSender(ABC):
     """Abstract base class for RDT senders"""
     
@@ -298,7 +331,7 @@ class AbstractSender(ABC):
         #     # 4. Return complete file data
         #     pass
             
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             self.logger.error(f"File not found: {filepath}")
             return False
         except Exception as e:
@@ -326,7 +359,6 @@ class AbstractSender(ABC):
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
                     data=chunk
-                    # removed filename, only specified in INIT packet
                 )
                 packets.append(packet)
                 chunk_index += 1
@@ -345,6 +377,45 @@ class AbstractReceiver(ABC):
     def __init__(self, socket: socket.socket, logger):
         self.socket = socket
         self.logger = logger
+    
+    def receive_file(self, client_addr: Tuple[str, int], session_id: str) -> Tuple[bool, bytes]:
+        """
+        Receive complete file from client
+        Handles first packet reception, validation, and delegates to subclass
+        
+        Args:
+            client_addr: Expected client address
+            session_id: Expected session ID
+            
+        Returns:
+            Tuple[bool, bytes]: (success, file_data)
+        """
+        try:
+            # wait for first DATA packet
+            self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
+            data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
+            
+            # validate source
+            if addr != client_addr:
+                self.logger.error(f"Packet from unexpected address: {addr}")
+                return False, b''
+                
+            first_packet = RDTPacket.from_bytes(data)
+            
+            # validate session
+            if first_packet.session_id != session_id:
+                self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+                return False, b''
+            
+            # delegate to subclass implementation
+            return self.receive_file_with_first_packet(first_packet, client_addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            
+        except socket.timeout as e:
+            self.logger.error("Timeout waiting for first DATA packet")
+            return False, b''
+        except Exception as e:
+            self.logger.error(f"Error receiving first packet: {e}")
+            return False, b''
     
     @abstractmethod
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:

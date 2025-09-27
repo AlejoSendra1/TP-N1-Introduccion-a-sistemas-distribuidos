@@ -31,10 +31,13 @@ from .base import (
     RDTPacket,
     request_shutdown,
     is_shutdown_requested,
+    wait_for_init_packet,
     PACKET_SIZE,
     TIMEOUT,
     MAX_RETRIES,
-    WINDOW_SIZE
+    WINDOW_SIZE,
+    DATA_BUFFER_SIZE,
+    SW_DATA_BUFFER_SIZE
 )
 
 # Concrete implementations (for advanced usage)
@@ -43,9 +46,6 @@ from .selective_repeat import SelectiveRepeatSender, SelectiveRepeatReceiver
 
 # Abstract base classes (for extending the library)
 from .base import AbstractSender, AbstractReceiver
-
-# High-level server interface
-from .session import RDTServer, TransferRequest
 
 # Define what gets exported with "from lib import *"
 __all__ = [
@@ -57,6 +57,7 @@ __all__ = [
     # Utilities
     'request_shutdown',
     'is_shutdown_requested',
+    'wait_for_init_packet',
     'PacketType',
     'RDTPacket',
     
@@ -65,6 +66,8 @@ __all__ = [
     'TIMEOUT', 
     'MAX_RETRIES',
     'WINDOW_SIZE',
+    'DATA_BUFFER_SIZE',
+    'SW_DATA_BUFFER_SIZE',
     
     # Concrete implementations
     'RDTSender',
@@ -75,9 +78,5 @@ __all__ = [
     # Abstract classes
     'AbstractSender',
     'AbstractReceiver',
-    
-    # High-level interfaces
-    'RDTServer',
-    'TransferRequest'
 ]
 
