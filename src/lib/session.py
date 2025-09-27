@@ -157,10 +157,10 @@ class RDTSession:
 
     def send_file(self,source):
         sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
-
+        sender.session_id = self.session_id
         if sender.send_file(source, self.filename):
             self.logger.info("File uploaded successfully")
-            self._handle_fin()
+
         else:
             self.logger.error("File upload failed")
             sys.exit(1)

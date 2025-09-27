@@ -215,17 +215,7 @@ class AbstractSender(ABC):
                 self.logger.error("File transfer failed")
             
             return result
-            
-        # TODO: DOWNLOAD IMPLEMENTATION
-        # we should add a method to receive downloaded files from server:
-        # def receive_downloaded_file(self) -> bytes:
-        #     """Receive file after download request - must be implemented by subclasses"""
-        #     # 1. Wait for DATA packets from server
-        #     # 2. Send ACKs for received packets
-        #     # 3. Handle retransmissions and timeouts
-        #     # 4. Return complete file data
-        #     pass
-            
+                        
         except FileNotFoundError:
             self.logger.error(f"File not found: {filepath}")
             return False

@@ -176,35 +176,35 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
 
-    """def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+    
+    logger.debug("esperando fin")
+    try:
+        # wait for FIN packet with timeout
+        sock.settimeout(5.0)
+        data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
+        fin_packet = RDTPacket.from_bytes(data)
         
-        logger.debug("esperando fin")
-        try:
-            # wait for FIN packet with timeout
-            sock.settimeout(5.0)
-            data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
-            fin_packet = RDTPacket.from_bytes(data)
+        if (fin_packet.packet_type == PacketType.FIN and 
+            fin_packet.session_id == session_id and
+            addr == serv_addr):
             
-            if (fin_packet.packet_type == PacketType.FIN and 
-                fin_packet.session_id == session_id and
-                addr == serv_addr):
-                
-                # send FIN ACK
-                fin_ack = RDTPacket(
-                    packet_type=PacketType.ACK,
-                    session_id=session_id
-                )
-                sock.sendto(fin_ack.to_bytes(), addr)
-                logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
-                
-            else:
-                logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{client_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
-                
-        except socket.timeout:
-            logger.warning("No FIN received, session may be incomplete")
-        except Exception as e:
-            logger.error(f"Error handling FIN: {e}")
-    """
+            # send FIN ACK
+            fin_ack = RDTPacket(
+                packet_type=PacketType.ACK,
+                session_id=session_id
+            )
+            sock.sendto(fin_ack.to_bytes(), addr)
+            logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
+            
+        else:
+            logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
+            
+    except socket.timeout:
+        logger.warning("No FIN received, session may be incomplete")
+    except Exception as e:
+        logger.error(f"Error handling FIN: {e}")
+    
 
 def main():
     # parse command line arguments
@@ -255,7 +255,7 @@ def main():
             logger.error("Failed to download file")
             sys.exit(1)
 
-        #handle_fin(clientSocket,server_addr,session_id,logger)
+        handle_fin(clientSocket,server_addr,session_id,logger)
 
         # Step 3: Save file to disk
         try:

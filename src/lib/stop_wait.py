@@ -71,7 +71,7 @@ class RDTSender(AbstractSender):
             packet.session_id = self.session_id  # add session ID to all packets
             packet.calculate_checksum()  # recalculate after changes
             
-            self.logger.info(f"se envio: {packet.seq_num} tipo: {packet.packet_type} , es ultimo:{packet.is_last}")
+            
             if self._send_packet_reliable(packet):
                 self.logger.debug(f"Packet {self.seq_num} sent successfully")
                 self.seq_num = 1 - self.seq_num  # alternate between 0 and 1
@@ -94,6 +94,7 @@ class RDTSender(AbstractSender):
     
     def _send_fin(self) -> bool:
         """Send FIN packet to close session"""
+        self.logger.debug(f'id de la sesion {self.session_id}')
         if not self.session_id:
             self.logger.warning("No session ID for FIN packet")
             return True  # no session to close
@@ -246,7 +247,6 @@ class RDTReceiver(AbstractReceiver):
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
                     continue
                 
-                self.logger.info(f"se recibio: {packet.seq_num} tipo: {packet.packet_type} , es ultimo:{packet.is_last}")
                 if packet.seq_num == self.expected_seq:
                     # correct packet received
                     file_data += packet.data
@@ -280,42 +280,3 @@ class RDTReceiver(AbstractReceiver):
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
                 return False, b''
-
-def client_receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
-    """Receive file starting with first packet"""
-    try:
-        if not first_packet.verify_checksum():
-            self.logger.error("First packet has invalid checksum")
-            return False, b''
-
-        if first_packet.seq_num != self.expected_seq:
-            self.logger.warning(f"Unexpected sequence number {first_packet.seq_num}, expected {self.expected_seq}")
-            # send ACK for the expected sequence number (previous packet)
-            ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=1-self.expected_seq)
-            self.socket.sendto(ack.to_bytes(), addr)
-            return False, b''
-
-        file_data = first_packet.data
-        filename = first_packet.filename
-
-        # send ACK for first packet (include session_id if present)        
-        accept = RDTPacket(seq_num=0, packet_type=PacketType.ACCEPT, ack_num=first_packet.seq_num,
-                        session_id=first_packet.session_id if hasattr(first_packet, 'session_id') and first_packet.session_id else '')
-
-        self.socket.sendto(accept.to_bytes(), addr)
-        self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
-
-        if first_packet.is_last:
-            self.logger.info(f"File {filename} received completely in one packet")
-            return True, file_data
-
-        # continue receiving remaining packets
-        self.expected_seq = 1 - self.expected_seq
-        success, remaining_data = self._continue_receiving(addr)
-
-        if success:
-            return True, file_data + remaining_data
-        return False, b''
-    except Exception as e:
-        self.logger.error(f"Error receiving downloaded file: {e}")
-        return False, b''
