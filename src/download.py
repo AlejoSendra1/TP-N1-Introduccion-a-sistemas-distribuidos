@@ -52,8 +52,8 @@ def setup_argparse():
     
     # protocol configuration
     parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
+                       choices=['stop_wait', 'selective_repeat'],
+                       default='stop_wait', 
                        help='error recovery protocol')
     
     return parser.parse_args()
@@ -137,36 +137,12 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     """
     # Create appropriate receiver
     receiver = create_receiver(protocol, socket_obj, logger)
-    
+    logger.debug(f'receiver creado')
     try:
-        # Wait for first DATA packet from server
-        socket_obj.settimeout(5.0)  # 5 second timeout for first packet
-        data, addr = socket_obj.recvfrom(DATA_BUFFER_SIZE)
         
-        if addr != server_addr:
-            logger.error(f"Received data from unexpected address: {addr}")
-            return False, b''
+        # let receiver handle everything (first packet + rest)
+        success, file_data = receiver.receive_file(server_addr, session_id)
         
-        first_packet = RDTPacket.from_bytes(data)
-        
-        if first_packet.packet_type != PacketType.DATA:
-            logger.error(f"Expected DATA packet, got: {first_packet.packet_type}")
-            return False, b''
-        
-        if not first_packet.verify_checksum():
-            logger.error("First packet has invalid checksum")
-            return False, b''
-
-        # Let receiver handle the file reception
-        logger.info("Starting file reception...")
-        success, file_data = receiver.receive_file_with_first_packet(first_packet, server_addr)
-        
-        
-        if success:
-            logger.info("File received successfully")
-        else:
-            logger.error("File reception failed")
-            
         return success, file_data
         
     except timeout:
@@ -176,34 +152,34 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
 
-def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+# def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
         
-        logger.debug("esperando fin")
-        try:
-            # wait for FIN packet with timeout
-            sock.settimeout(5.0)
-            data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
-            fin_packet = RDTPacket.from_bytes(data)
+#         logger.debug("esperando fin")
+#         try:
+#             # wait for FIN packet with timeout
+#             sock.settimeout(5.0)
+#             data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
+#             fin_packet = RDTPacket.from_bytes(data)
             
-            if (fin_packet.packet_type == PacketType.FIN and 
-                fin_packet.session_id == session_id and
-                addr == serv_addr):
+#             if (fin_packet.packet_type == PacketType.FIN and 
+#                 fin_packet.session_id == session_id and
+#                 addr == serv_addr):
                 
-                # send FIN ACK
-                fin_ack = RDTPacket(
-                    packet_type=PacketType.ACK,
-                    session_id=session_id
-                )
-                sock.sendto(fin_ack.to_bytes(), addr)
-                logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
+#                 # send FIN ACK
+#                 fin_ack = RDTPacket(
+#                     packet_type=PacketType.ACK,
+#                     session_id=session_id
+#                 )
+#                 sock.sendto(fin_ack.to_bytes(), addr)
+#                 logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
                 
-            else:
-                logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{serv_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
+#             else:
+#                 logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{serv_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
                 
-        except timeout:
-            logger.warning("No FIN received, session may be incomplete")
-        except Exception as e:
-            logger.error(f"Error handling FIN: {e}")
+#         except timeout:
+#             logger.warning("No FIN received, session may be incomplete")
+#         except Exception as e:
+#             logger.error(f"Error handling FIN: {e}")
 
 
 def main():
@@ -238,7 +214,7 @@ def main():
     logger.info("Press Ctrl+C to cancel download")
     
     try:
-        protocol = Protocol(args.protocol)
+        protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
         
         # Step 1: Perform download handshake

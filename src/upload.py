@@ -52,8 +52,8 @@ def setup_argparse():
     
     # protocol configuration
     parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
+                       choices=['stop_wait', 'selective_repeat'],
+                       default='stop_wait', 
                        help='error recovery protocol')
     
     return parser.parse_args()
@@ -97,9 +97,8 @@ def main():
     
     try:
         # create appropriate sender using factory method
-        protocol = Protocol(args.protocol)
+        protocol = Protocol.from_string(args.protocol)
         sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
-        logger.debug(f"Using {protocol.value} protocol")
         
         # perform handshake first
         if not sender.perform_handshake(args.name, os.path.getsize(args.src)):
@@ -112,7 +111,7 @@ def main():
             logger.error("File upload failed")
             sys.exit(1)
             
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as e:
         logger.info("Upload cancelled by user")
         sys.exit(0)
     except Exception as e:
