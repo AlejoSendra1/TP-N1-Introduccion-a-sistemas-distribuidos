@@ -60,6 +60,7 @@ class PacketType(Enum):
     
     # Control
     FIN = 5       # Finish transfer
+    FIN_ACK = 8   # Acknowledge FIN
     ERROR = 6     # Error message
     
     # Legacy (for download - to be implemented)
@@ -395,9 +396,10 @@ class AbstractReceiver(ABC):
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
             
-            # validate source
-            if addr != client_addr:
                 self.logger.error(f"Packet from unexpected address: {addr}")
+            # validate source (only check host, not port - OS may assign different port when client is reconnecting)
+            if addr[0] != client_addr[0]:
+                self.logger.error(f"Packet from unexpected host: {addr[0]} (expected {client_addr[0]})")
                 return False, b''
                 
             first_packet = RDTPacket.from_bytes(data)
@@ -408,7 +410,7 @@ class AbstractReceiver(ABC):
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, client_addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except socket.timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
