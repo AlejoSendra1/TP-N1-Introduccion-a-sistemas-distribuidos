@@ -52,8 +52,8 @@ def setup_argparse():
     
     # protocol configuration
     parser.add_argument('-r', '--protocol', type=str, 
-                       choices=[p.value for p in Protocol],
-                       default=Protocol.STOP_WAIT.value, 
+                       choices=['stop_wait', 'selective_repeat'],
+                       default='stop_wait', 
                        help='error recovery protocol')
     
     return parser.parse_args()

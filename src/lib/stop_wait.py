@@ -7,7 +7,7 @@ import socket
 from typing import List, Tuple
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
-    MAX_RETRIES, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
+    MAX_RETRIES, ACK_BUFFER_SIZE, SW_DATA_BUFFER_SIZE, 
     SW_PACKET_SIZE, SW_TIMEOUT, HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
 )
 
@@ -21,8 +21,8 @@ class RDTSender(AbstractSender):
         self.session_id = None
         self.socket.settimeout(SW_TIMEOUT)
     
-    def _prepare_packets(self, filepath: str, filename: str) -> List[RDTPacket]:
-        """Prepare packets from file using SW_PACKET_SIZE for Stop & Wait"""
+    def _prepare_packets(self, filepath: str) -> List[RDTPacket]:
+        """Prepare DATA packets from file using SW_PACKET_SIZE for Stop & Wait"""
         packets = []
         
         with open(filepath, 'rb') as file:
@@ -33,26 +33,13 @@ class RDTSender(AbstractSender):
                 if not chunk:
                     break
                 
-                # check if this is the last chunk by trying to read one more byte
-                next_byte = file.read(1)
-                is_last = len(next_byte) == 0
-                
-                # if not last, put the byte back
-                if not is_last:
-                    file.seek(file.tell() - 1)
-                
                 packet = RDTPacket(
                     seq_num=chunk_index,
                     packet_type=PacketType.DATA,
-                    data=chunk,
-                    filename=filename if chunk_index == 0 else '',
-                    is_last=is_last
+                    data=chunk
                 )
                 packets.append(packet)
                 chunk_index += 1
-                
-                if is_last:
-                    break
         
         self.logger.debug(f"se van a mandar {len(packets)} packets")#
         return packets
@@ -75,11 +62,6 @@ class RDTSender(AbstractSender):
             if self._send_packet_reliable(packet):
                 self.logger.debug(f"Packet {self.seq_num} sent successfully")
                 self.seq_num = 1 - self.seq_num  # alternate between 0 and 1
-                
-                # if this was the last packet, we're done with data transfer
-                if packet.is_last:
-                    self.logger.info("Last packet sent and acknowledged")
-                    break
             else:
                 self.logger.error(f"Failed to send packet {self.seq_num}")
                 return False
@@ -129,7 +111,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -166,7 +148,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending packet {packet.seq_num}: {e}")
@@ -197,7 +179,6 @@ class RDTReceiver(AbstractReceiver):
             return False, b''
         
         file_data = first_packet.data
-        filename = first_packet.filename
         
         # send ACK for first packet (include session_id if present)
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
@@ -205,11 +186,6 @@ class RDTReceiver(AbstractReceiver):
         
         self.socket.sendto(ack.to_bytes(), addr)
         self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
-        
-        
-        if first_packet.is_last:
-            self.logger.info(f"File {filename} received completely in one packet")
-            return True, file_data
         
         # continue receiving remaining packets
         self.expected_seq = 1 - self.expected_seq
@@ -233,15 +209,18 @@ class RDTReceiver(AbstractReceiver):
             
             counter = 1
             try:
-                data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
-                counter+=1
-                self.logger.debug(f" se recibieron {counter} packets")#
-            
+                data, client_addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
+                
                 if client_addr != addr:
                     self.logger.warning(f"Received packet from unexpected address: {client_addr}")
                     continue
                 
                 packet = RDTPacket.from_bytes(data)
+                
+                # check if this is a FIN packet
+                if packet.packet_type == PacketType.FIN:
+                    self.logger.info("Received FIN packet, file transfer complete")
+                    return True, file_data
                 
                 if not packet.verify_checksum():
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
@@ -258,10 +237,6 @@ class RDTReceiver(AbstractReceiver):
                     self.socket.sendto(ack.to_bytes(), addr)
                     self.logger.debug(f"Sent ACK for packet {packet.seq_num}")
                     
-                    if packet.is_last:
-                        self.logger.info("File received completely")
-                        return True, file_data
-                    
                     # prepare for next packet
                     self.expected_seq = 1 - self.expected_seq
                     
@@ -274,7 +249,7 @@ class RDTReceiver(AbstractReceiver):
                     
                     self.socket.sendto(ack.to_bytes(), addr)
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug("Timeout waiting for packet")
                 continue
             except Exception as e:

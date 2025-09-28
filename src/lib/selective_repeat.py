@@ -31,12 +31,14 @@ class SelectiveRepeatSender(AbstractSender):
         """Send packets using selective repeat protocol"""
         total_packets = len(packets)
         
-        # Perform handshake first
+        # perform handshake first (INIT pkg)
         if total_packets > 0:
-            filename = packets[0].filename
-            file_size = len(packets) * PACKET_SIZE
+            file_size = sum(len(p.data) for p in packets if p.data)
+            self.logger.debug(f"Calculated file_size: {file_size} from {total_packets} packets")
             
-            
+            self.socket.settimeout(TIMEOUT)
+            if not self._perform_handshake(self.filename, file_size):
+                return False
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
@@ -117,7 +119,7 @@ class SelectiveRepeatSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -151,7 +153,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # session ID should already be set from handshake
             
-        except socket.timeout:
+        except socket.timeout as e:
             pass  # no ACK received, continue
         except Exception as e:
             self.logger.error(f"Error receiving ACK: {e}")
@@ -174,7 +176,61 @@ class SelectiveRepeatSender(AbstractSender):
             timer.reset()
         
         return True
-
+    
+    def _perform_handshake(self, filename: str, file_size: int) -> bool:
+        """Perform handshake with server"""
+        # create INIT packet
+        try:
+            init_packet = RDTPacket(
+                packet_type=PacketType.INIT,
+                filename=filename,
+                file_size=file_size,
+                protocol=Protocol.SELECTIVE_REPEAT,
+                data=b''
+            )
+        except Exception as e:
+            self.logger.error(f"Error creating INIT packet: {e}")
+            self.logger.error(f"filename type: {type(filename)}, value: {filename}")
+            self.logger.error(f"file_size type: {type(file_size)}, value: {file_size}")
+            raise
+        
+        # longer timeout for handshake
+        original_timeout = self.socket.gettimeout()
+        self.socket.settimeout(HANDSHAKE_TIMEOUT)
+        
+        for attempt in range(MAX_RETRIES):
+            if is_shutdown_requested():
+                self.socket.settimeout(original_timeout)
+                return False
+                
+            try:
+                # send INIT
+                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
+                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+                
+                # wait for ACCEPT
+                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_packet = RDTPacket.from_bytes(accept_data)
+                
+                if (accept_packet.packet_type == PacketType.ACCEPT and 
+                    accept_packet.session_id and 
+                    accept_packet.verify_checksum()):
+                    
+                    self.session_id = accept_packet.session_id
+                    self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                    self.socket.settimeout(original_timeout)
+                    return True
+                    
+            except socket.timeout as e:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+            except Exception as e:
+                self.logger.error(f"Error during handshake: {e}")
+                self.socket.settimeout(original_timeout)
+                return False
+                
+        self.logger.error("Failed to establish session")
+        self.socket.settimeout(original_timeout)
+        return False
 
 class SelectiveRepeatReceiver(AbstractReceiver):
     """Selective Repeat receiver implementation with buffering"""
@@ -222,7 +278,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 
                 # don't return here - continue until FIN
                     
-            except socket.timeout:
+            except socket.timeout as e:
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
@@ -265,12 +321,6 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                     filename = delivered_packet.filename
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
-                
-                if delivered_packet.is_last:
-                    self.logger.info(f"File {filename} received completely")
-                    is_complete = True
-                    # we need to send ACK for the last packet
-                    # the ACK will be sent by the normal flow below
                 
                 self.rcv_base += 1
             
