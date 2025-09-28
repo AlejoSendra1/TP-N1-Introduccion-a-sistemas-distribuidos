@@ -1,8 +1,11 @@
 import os
+import sys
 import argparse
 import logging
+import signal
 from socket import socket, AF_INET, SOCK_DGRAM
-from lib import Protocol
+from lib import create_receiver, request_shutdown, Protocol
+from lib.base import RDTPacket, PacketType, DATA_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -20,8 +23,7 @@ def setup_logging(verbose, quiet):
     logging.basicConfig(
         level=level,
         format=log_format,
-    handlers=[logging.StreamHandler()]
-        
+        handlers=[logging.StreamHandler()]
     )
     
     return logging.getLogger(__name__)
@@ -37,7 +39,7 @@ def setup_argparse():
                                help='decrease output verbosity')
     
     # server configuration
-    parser.add_argument('-H', '--host', type=str, default='localhost',
+    parser.add_argument('-H', '--host', type=str, default='127.0.0.1',
                        help='server IP address')
     parser.add_argument('-p', '--port', type=int, default=49153,
                        help='server port')
@@ -56,58 +58,211 @@ def setup_argparse():
     
     return parser.parse_args()
 
+def signal_handler(signum, frame, logger, socket_obj):
+    """Handle interrupt signals gracefully"""
+    logger.info(f"Received signal {signum}, stopping download...")
+    request_shutdown()  # Signal RDT protocol to stop
+    if socket_obj:
+        socket_obj.close()
+    sys.exit(0)
+
+def perform_download_handshake(socket_obj, server_addr, filename, protocol, logger):
+    """
+    Perform handshake to request file download
+    
+    Returns:
+        str: session_id if successful, None if failed
+    """
+    # Create download request packet (INIT with file_size=0 indicates download)
+    init_packet = RDTPacket(
+        packet_type=PacketType.INIT,
+        filename=filename,
+        file_size=0,  # 0 indicates download request
+        protocol=protocol
+    )
+    
+    # Set timeout for handshake
+    original_timeout = socket_obj.gettimeout()
+    socket_obj.settimeout(HANDSHAKE_TIMEOUT)
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            # Send download request (INIT)
+            socket_obj.sendto(init_packet.to_bytes(), server_addr)
+            logger.debug(f"Sent download request for '{filename}' (attempt {attempt + 1})")
+            
+            # Wait for server response
+            response_data, addr = socket_obj.recvfrom(DATA_BUFFER_SIZE)
+            
+            if addr != server_addr:
+                logger.warning(f"Received response from unexpected address: {addr}")
+                continue
+                
+            response_packet = RDTPacket.from_bytes(response_data)
+            
+            if response_packet.packet_type == PacketType.ACCEPT:
+                if response_packet.session_id and response_packet.verify_checksum():
+                    session_id = response_packet.session_id
+                    logger.info(f"Download request accepted, session ID: {session_id}")
+                    socket_obj.settimeout(original_timeout)
+                    return session_id
+                else:
+                    logger.error("Invalid ACCEPT packet received")
+                    
+            elif response_packet.packet_type == PacketType.ERROR:
+                error_msg = response_packet.data.decode() if response_packet.data else "Unknown error"
+                logger.error(f"Server rejected download request: {error_msg}")
+                socket_obj.settimeout(original_timeout)
+                return None
+                
+            else:
+                logger.debug(f"Unexpected response type: {response_packet.packet_type}")
+                
+        except socket.timeout:
+            logger.debug(f"Timeout waiting for download response, retrying...")
+        except Exception as e:
+            logger.error(f"Error during download handshake: {e}")
+            break
+    
+    logger.error("Failed to establish download session")
+    socket_obj.settimeout(original_timeout)
+    return None
+
+def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger):
+    """
+    Receive file data from server after successful handshake
+    
+    Returns:
+        Tuple[bool, bytes]: (success, file_data)
+    """
+    # Create appropriate receiver
+    receiver = create_receiver(protocol, socket_obj, logger)
+    logger.debug(f'receiver creado')
+    try:
+        
+        # let receiver handle everything (first packet + rest)
+        success, file_data = receiver.receive_file(server_addr, session_id)
+        
+        return success, file_data
+            
+    except Exception as e:
+        logger.error(f"Error receiving file: {e}")
+        return False, b''
+
+    except socket.timeout:
+        logger.error("Timeout waiting for file data from server")
+        return False, b''
+    except Exception as e:
+        logger.error(f"Error receiving downloaded file: {e}")
+        return False, b''
+
+def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+    
+    logger.debug("esperando fin")
+    try:
+        # wait for FIN packet with timeout
+        sock.settimeout(5.0)
+        data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
+        fin_packet = RDTPacket.from_bytes(data)
+        
+        if (fin_packet.packet_type == PacketType.FIN and 
+            fin_packet.session_id == session_id and
+            addr == serv_addr):
+            
+            # send FIN ACK
+            fin_ack = RDTPacket(
+                packet_type=PacketType.ACK,
+                session_id=session_id
+            )
+            sock.sendto(fin_ack.to_bytes(), addr)
+            logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
+            
+        else:
+            logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
+            
+    except socket.timeout:
+        logger.warning("No FIN received, session may be incomplete")
+    except Exception as e:
+        logger.error(f"Error handling FIN: {e}")
+    
+
 def main():
+    # parse command line arguments
     args = setup_argparse()
     
     # setup logging
     logger = setup_logging(args.verbose, args.quiet)
     
-    # ensure destination directory exists
-    dst_dir = os.path.dirname(args.dst)
-    if dst_dir and not os.path.exists(dst_dir):
-        logger.info(f"Creating destination directory: {dst_dir}")
-        os.makedirs(dst_dir)
+    # set dst path
+    if not args.dst:
+        args.dst = args.filename
+        logger.debug(f"Using default dst filename: {args.dst}")
+    
+    # check if dst file already exists
+    if os.path.exists(args.dst):
+        response = input(f"File '{args.dst}' already exists. Overwrite? (y/N): ")
+        if response.lower() != 'y':
+            logger.info("Download cancelled")
+            sys.exit(0)
     
     # setup socket
     clientSocket = socket(AF_INET, SOCK_DGRAM)
     logger.debug("Socket created")
     
-    logger.info(f"Downloading file '{args.name}' from {args.host}:{args.port}")
-    logger.debug(f"Saving to: {args.dst}")
+    # setup signal handlers
+    signal.signal(signal.SIGINT, lambda s, f: signal_handler(s, f, logger, clientSocket))
+    signal.signal(signal.SIGTERM, lambda s, f: signal_handler(s, f, logger, clientSocket))
+    
+    logger.info(f"Requesting file '{args.name}' from {args.host}:{args.port}")
     logger.debug(f"Using protocol: {args.protocol}")
+    logger.info("Press Ctrl+C to cancel download")
     
-    # TODO: DOWNLOAD IMPLEMENTATION
-    # this is a placeholder with actual download logic using the library:
-    # 
-    # 1) create sender using factory:
-    #    from lib import create_sender, Protocol
-    #    sender = create_sender(Protocol.from_string(args.protocol), clientSocket, (args.host, args.port), logger)
-    # 
-    # 2) perform handshake (INIT with file_size=0 for download or BETTER IF PACKET TYPE IS = PacketType.REQUEST):
-    #    success = sender._perform_handshake(args.name, 0)  # filename, file_size=0
-    # 
-    # 3) receive file data:
-    #    if success:
-    #        file_data = sender.receive_downloaded_file()  # TODO: implement this method
-    #        
-    #        # 4) Save file:
-    #        with open(args.dst, 'wb') as f:
-    #            f.write(file_data)
-    #        logger.info(f"File downloaded successfully: {args.dst}")
-    #    else:
-    #        logger.error("Download failed")
-    # 
-    # 5) close socket and handle FIN/FIN-ACK automatically
-    
-    # PLACEHOLDER CODE (remove when implementing):
-    message = f"DOWNLOAD {args.name}"
-    clientSocket.sendto(message.encode(), (args.host, args.port))
-    logger.debug("Download request sent")
-    
-    modifiedMessage, serverAddress = clientSocket.recvfrom(2048)
-    logger.info(f"Server response: {modifiedMessage.decode()}")
-    
-    clientSocket.close()
-    logger.debug("Socket closed")
+    try:
+        protocol = Protocol.from_string(args.protocol)
+        server_addr = (args.host, args.port)
+        
+        # Step 1: Perform download handshake
+        session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
+        
+        if not session_id:
+            logger.error("Failed to initiate download")
+            sys.exit(1)
+        
+        # Step 2: Receive file data
+        success, file_data = receive_downloaded_file(clientSocket, server_addr, session_id, protocol, logger)
+        
+        if not success:
+            logger.error("Failed to download file")
+            sys.exit(1)
 
-main()
+        handle_fin(clientSocket,server_addr,session_id,logger)
+
+        # Step 3: Save file to disk
+        try:
+            # Create dst directory if it doesn't exist
+            dst_dir = os.path.dirname(args.dst)
+            if dst_dir and not os.path.exists(dst_dir):
+                os.makedirs(dst_dir)
+                logger.debug(f"Created dst directory: {dst_dir}")
+            
+            with open(args.dst, 'wb') as f:
+                f.write(file_data)
+            
+            logger.info(f"File saved successfully: {args.dst} ({len(file_data)} bytes)")
+            
+        except Exception as e:
+            logger.error(f"Failed to save file: {e}")
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Download cancelled by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        sys.exit(1)
+    finally:
+        clientSocket.close()
+        logger.debug("Socket closed")
+
+if __name__ == '__main__':
+    main()

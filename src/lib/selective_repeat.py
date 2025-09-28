@@ -293,11 +293,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num,
                        session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
         
-        self.socket.sendto(ack.to_bytes(), addr)
-        
         if not packet.verify_checksum():
             self.logger.error(f"Packet {seq_num} has invalid checksum")
             return False
+        
+        self.socket.sendto(ack.to_bytes(), addr)
+        
         
         if seq_num >= self.rcv_base and seq_num < self.rcv_base + self.window_size:
             # packet is within receiver window
