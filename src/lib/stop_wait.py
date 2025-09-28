@@ -4,6 +4,7 @@ Simple reliable data transfer with alternating sequence numbers
 """
 
 import socket
+from socket import timeout
 from typing import List, Tuple
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
@@ -111,7 +112,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -223,7 +224,10 @@ class RDTReceiver(AbstractReceiver):
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, file transfer complete")
-                    return True, file_data
+                    if self._handle_fin(packet, addr):
+                        return True, file_data
+                    else:
+                        return False, b''
                 
                 if not packet.verify_checksum():
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
