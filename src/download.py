@@ -137,38 +137,18 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     """
     # Create appropriate receiver
     receiver = create_receiver(protocol, socket_obj, logger)
-    
+    logger.debug(f'receiver creado')
     try:
-        # Wait for first DATA packet from server
-        socket_obj.settimeout(5.0)  # 5 second timeout for first packet
-        data, addr = socket_obj.recvfrom(DATA_BUFFER_SIZE)
         
-        if addr != server_addr:
-            logger.error(f"Received data from unexpected address: {addr}")
-            return False, b''
+        # let receiver handle everything (first packet + rest)
+        success, file_data = receiver.receive_file(server_addr, session_id)
         
-        first_packet = RDTPacket.from_bytes(data)
-        
-        if first_packet.packet_type != PacketType.DATA:
-            logger.error(f"Expected DATA packet, got: {first_packet.packet_type}")
-            return False, b''
-        
-        if not first_packet.verify_checksum():
-            logger.error("First packet has invalid checksum")
-            return False, b''
-
-        # Let receiver handle the file reception
-        logger.info("Starting file reception...")
-        success, file_data = receiver.receive_file_with_first_packet(first_packet, server_addr)
-        
-        
-        if success:
-            logger.info("File received successfully")
-        else:
-            logger.error("File reception failed")
-            
         return success, file_data
-        
+            
+    except Exception as e:
+        logger.error(f"Error receiving file: {e}")
+        return False, b''
+
     except socket.timeout:
         logger.error("Timeout waiting for file data from server")
         return False, b''
@@ -238,7 +218,7 @@ def main():
     logger.info("Press Ctrl+C to cancel download")
     
     try:
-        protocol = Protocol(args.protocol)
+        protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
         
         # Step 1: Perform download handshake

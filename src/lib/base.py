@@ -201,6 +201,7 @@ class RDTPacket:
         """Deserialize bytes to RDTPacket"""
         # Fixed header defined as constant
         
+        
         if len(data) < HEADER_SIZE:
             raise ValueError(f"Invalid packet: too short (expected {HEADER_SIZE}, got {len(data)})")
         
@@ -222,6 +223,7 @@ class RDTPacket:
         session_id = str(session_id_byte) if session_id_byte != 0 else ''
         protocol = Protocol(protocol_value) if protocol_value != 0 else None
         
+
         # extract payload
         if len(data) < HEADER_SIZE + payload_length:
             raise ValueError("Invalid packet: payload incomplete")

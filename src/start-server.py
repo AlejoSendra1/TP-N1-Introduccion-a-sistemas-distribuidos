@@ -6,6 +6,7 @@ import signal
 import random
 from typing import Tuple, Optional
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
+from lib.factory import create_sender
 
 class Session:
     """
@@ -120,6 +121,16 @@ class Session:
         except Exception as e:
             self.logger.error(f"Failed to send rejection: {e}")
 
+    def send_file(self,source):
+        sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
+        sender.session_id = self.session_id
+        if sender.send_file(source, self.filename):
+            self.logger.info("File uploaded successfully")
+
+        else:
+            self.logger.error("File upload failed")
+
+
 
 class TransferRequest:
     """
@@ -198,6 +209,10 @@ class FileServer:
         result = wait_for_init_packet(self.sock, timeout)
         if result:
             packet, addr = result
+
+            if packet.file_size == 0:
+                self.logger.info('devolviendo download req en wait for transfer') ##sacar
+                return DownloadRequest(self.sock, self.logger, packet, addr)
             return TransferRequest(self.sock, self.logger, packet, addr)
         return None
 

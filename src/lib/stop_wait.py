@@ -167,10 +167,12 @@ class RDTReceiver(AbstractReceiver):
     
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
+        self.logger.debug(f'checksumeando el first packet')
         if not first_packet.verify_checksum():
             self.logger.error("First packet has invalid checksum")
             return False, b''
         
+        self.logger.debug(f'mirando el seq num del first packet')
         if first_packet.seq_num != self.expected_seq:
             self.logger.warning(f"Unexpected sequence number {first_packet.seq_num}, expected {self.expected_seq}")
             # send ACK for the expected sequence number (previous packet)
@@ -184,6 +186,7 @@ class RDTReceiver(AbstractReceiver):
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
                        session_id=first_packet.session_id if hasattr(first_packet, 'session_id') and first_packet.session_id else '')
         
+        self.logger.debug(f'mandando ack del first packet')
         self.socket.sendto(ack.to_bytes(), addr)
         self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
         
@@ -206,8 +209,8 @@ class RDTReceiver(AbstractReceiver):
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
                 return False, b''
-            
-            counter = 1
+  
+  
             try:
                 data, client_addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
                 
