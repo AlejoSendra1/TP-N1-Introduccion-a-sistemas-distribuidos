@@ -5,10 +5,11 @@ Reliable data transfer with sliding window and selective retransmission
 
 import socket
 from typing import List, Tuple, Dict
+
 from .base import (
-    AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
-    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
-    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
+    AbstractSender, AbstractReceiver, RDTPacket, PacketType, PacketTimer,
+    MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE,
+    FIN_TIMEOUT, is_shutdown_requested, FIN_ACK_TIMEOUT
 )
 
 
@@ -215,7 +216,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, file transfer complete")
-                    return True, self.received_data
+                    return self._handle_fin(packet, addr), self.received_data
                 
                 # process regular DATA packet
                 complete = self._process_packet(packet, addr)
@@ -287,3 +288,35 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.debug(f"Packet {seq_num} outside receiver window, ignoring")
         
         return False
+
+    def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+        self.logger.debug("esperando fin")
+        fin_ack = RDTPacket(
+            packet_type=PacketType.ACK,
+            session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''
+        )
+        self.socket.sendto(fin_ack.to_bytes(), addr)
+        while True:
+            try:
+                # wait for duplicated FIN packet with timeout
+                self.socket.settimeout(FIN_ACK_TIMEOUT)
+                data, rcv_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
+                packet = RDTPacket.from_bytes(data)
+                if (packet.packet_type == PacketType.FIN and
+                        fin_packet.session_id == packet.session_id and
+                        addr == rcv_addr):
+
+                    # send FIN ACK
+                    self.socket.sendto(fin_ack.to_bytes(), addr)
+                    self.logger.info(f"Session {fin_packet.session_id} resending FIN ACK")
+
+                else:
+                    self.logger.warning(
+                        f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
+
+            except socket.timeout:
+                self.logger.warning("No duplicated FIN received before timeout, finishing session")
+                return True
+            except Exception as e:
+                self.logger.error(f"Error handling FIN: {e}")
+                return False

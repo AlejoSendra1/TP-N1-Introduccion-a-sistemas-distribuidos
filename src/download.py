@@ -3,7 +3,7 @@ import sys
 import argparse
 import logging
 import signal
-from socket import socket, AF_INET, SOCK_DGRAM
+from socket import socket, AF_INET, SOCK_DGRAM, timeout
 from lib import create_receiver, request_shutdown, Protocol
 from lib.base import RDTPacket, PacketType, DATA_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
 
@@ -118,7 +118,7 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
             else:
                 logger.debug(f"Unexpected response type: {response_packet.packet_type}")
                 
-        except socket.timeout:
+        except timeout:
             logger.debug(f"Timeout waiting for download response, retrying...")
         except Exception as e:
             logger.error(f"Error during download handshake: {e}")
@@ -169,14 +169,14 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
             
         return success, file_data
         
-    except socket.timeout:
+    except timeout:
         logger.error("Timeout waiting for file data from server")
         return False, b''
     except Exception as e:
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
 
-    """def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
+def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
         
         logger.debug("esperando fin")
         try:
@@ -198,13 +198,13 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
                 logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
                 
             else:
-                logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{client_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
+                logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id},{serv_addr}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
                 
-        except socket.timeout:
+        except timeout:
             logger.warning("No FIN received, session may be incomplete")
         except Exception as e:
             logger.error(f"Error handling FIN: {e}")
-    """
+
 
 def main():
     # parse command line arguments
@@ -255,7 +255,7 @@ def main():
             logger.error("Failed to download file")
             sys.exit(1)
 
-        #handle_fin(clientSocket,server_addr,session_id,logger)
+#       handle_fin(clientSocket,server_addr,session_id,logger)
 
         # Step 3: Save file to disk
         try:

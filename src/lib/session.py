@@ -94,11 +94,7 @@ class RDTSession:
                 return False, b''
                 
             # let receiver handle the rest
-            success, file_data = receiver.receive_file_with_first_packet(first_packet, self.client_addr)          
-
-            if success:
-                # wait for FIN packet and send FIN ACK
-                self._handle_fin()
+            success, file_data = receiver.receive_file_with_first_packet(first_packet, self.client_addr)
             
             return success, file_data
             
@@ -116,7 +112,7 @@ class RDTSession:
             # wait for FIN packet with timeout
             self.sock.settimeout(5.0)
             data, addr = self.sock.recvfrom(DATA_BUFFER_SIZE)
-            fin_packet = RDTPacket.from_bytes(data)
+            fin_packet = RDTPacket.from_+bytes(data)
             
             if (fin_packet.packet_type == PacketType.FIN and 
                 fin_packet.session_id == self.session_id and
@@ -158,9 +154,8 @@ class RDTSession:
     def send_file(self,source):
         sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
 
-        if sender.send_file(source, self.filename):
+        if sender.send_file(source, self.filename, self.session_id):
             self.logger.info("File uploaded successfully")
-            self._handle_fin()
         else:
             self.logger.error("File upload failed")
             sys.exit(1)

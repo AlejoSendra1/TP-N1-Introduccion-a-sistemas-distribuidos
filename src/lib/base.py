@@ -24,6 +24,7 @@ SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
 # timeout constants for critical operations
 HANDSHAKE_TIMEOUT = 0.5  # 500ms timeout for INIT/ACCEPT handshake
 FIN_TIMEOUT = 0.5  # 500ms timeout for FIN/FIN-ACK handshake
+FIN_ACK_TIMEOUT = 3.0 # 3 seconds timeout for FIN ACK
 
 # buffer sizes
 ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
@@ -191,8 +192,10 @@ class AbstractSender(ABC):
         self.dest_addr = dest_addr
         self.logger = logger
     
-    def send_file(self, filepath: str, filename: str) -> bool:
+    def send_file(self, filepath: str, filename: str, session_id: str = None) -> bool:
         """Template method for sending a file"""
+        if session_id:
+            self.session_id = session_id
         try:
             # validate file (basic, maybe should be more strict or throw an exception to handle)
             if not self._validate_file(filepath):
@@ -284,7 +287,7 @@ class AbstractSender(ABC):
             packet_type=PacketType.INIT,
             filename=filename,
             file_size=file_size,
-            protocol=Protocol.STOP_WAIT
+            protocol= Protocol.SELECTIVE_REPEAT
         )
         
         # longer timeout for handshake
