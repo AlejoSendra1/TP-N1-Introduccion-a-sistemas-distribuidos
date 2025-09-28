@@ -396,7 +396,8 @@ class AbstractReceiver(ABC):
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
             
-                self.logger.error(f"Packet from unexpected address: {addr}")
+            self.logger.error(f"Packet from unexpected address: {addr}")
+
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
                 self.logger.error(f"Packet from unexpected host: {addr[0]} (expected {client_addr[0]})")
