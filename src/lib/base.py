@@ -269,8 +269,7 @@ def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -
     Returns:
         Tuple[RDTPacket, client_addr] or None if timeout/error/no INIT packet
     """
-    if timeout:
-        sock.settimeout(timeout)
+    sock.settimeout(None) # timeout ccleanup
     
     try:
         data, addr = sock.recvfrom(INIT_PACKET_SIZE)  # INIT packets are small; TODO: maybe use a smaller buffer size for INIT packets (because file name cannot be that large)
