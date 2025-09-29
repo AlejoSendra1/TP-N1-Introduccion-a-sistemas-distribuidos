@@ -4,6 +4,7 @@ Reliable data transfer with sliding window and selective retransmission
 """
 
 import socket
+from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
@@ -36,9 +37,9 @@ class SelectiveRepeatSender(AbstractSender):
             file_size = sum(len(p.data) for p in packets if p.data)
             self.logger.debug(f"Calculated file_size: {file_size} from {total_packets} packets")
             
-            self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(self.filename, file_size):
-                return False
+            # self.socket.settimeout(TIMEOUT)
+            # if not self._perform_handshake(self.filename, file_size):
+            #     return False
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
@@ -119,7 +120,7 @@ class SelectiveRepeatSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -153,7 +154,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # session ID should already be set from handshake
             
-        except socket.timeout as e:
+        except timeout as e:
             pass  # no ACK received, continue
         except Exception as e:
             self.logger.error(f"Error receiving ACK: {e}")
@@ -176,6 +177,7 @@ class SelectiveRepeatSender(AbstractSender):
             timer.reset()
         
         return True
+    
     
     def _perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server and handle dedicated port"""
@@ -240,7 +242,7 @@ class SelectiveRepeatSender(AbstractSender):
                         self.socket.settimeout(original_timeout)
                         return True
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
                 self.logger.error(f"Error during handshake: {e}")
@@ -250,6 +252,9 @@ class SelectiveRepeatSender(AbstractSender):
         self.logger.error("Failed to establish session")
         self.socket.settimeout(original_timeout)
         return False
+    
+    def perform_handshake(self, filename, file_size):
+        return self._perform_handshake(filename, file_size)
     
     def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
         """Reconnect socket to dedicated port"""
@@ -335,7 +340,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 
                 # don't return here - continue until FIN
                     
-            except socket.timeout as e:
+            except timeout as e:
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
@@ -350,11 +355,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num,
                        session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
         
-        self.socket.sendto(ack.to_bytes(), addr)
-        
         if not packet.verify_checksum():
             self.logger.error(f"Packet {seq_num} has invalid checksum")
             return False
+        
+        self.socket.sendto(ack.to_bytes(), addr)
+        
         
         if seq_num >= self.rcv_base and seq_num < self.rcv_base + self.window_size:
             # packet is within receiver window
