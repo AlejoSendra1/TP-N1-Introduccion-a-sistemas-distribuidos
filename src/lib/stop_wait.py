@@ -4,6 +4,7 @@ Simple reliable data transfer with alternating sequence numbers
 """
 
 import socket
+from socket import timeout
 from typing import List, Tuple
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
@@ -111,7 +112,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -148,7 +149,7 @@ class RDTSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout for packet {packet.seq_num}, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending packet {packet.seq_num}: {e}")
@@ -157,6 +158,8 @@ class RDTSender(AbstractSender):
         self.logger.error(f"Failed to send packet {packet.seq_num} after {MAX_RETRIES} attempts")
         return False
     
+    
+
     def _perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server and handle dedicated port"""
         # Create INIT packet
@@ -213,7 +216,7 @@ class RDTSender(AbstractSender):
                         self.socket.settimeout(original_timeout)
                         return True
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
                 self.logger.error(f"Error during handshake: {e}")
@@ -224,6 +227,9 @@ class RDTSender(AbstractSender):
         self.socket.settimeout(original_timeout)
         return False
     
+    def perform_handshake(self, filename, file_size):
+        return self._perform_handshake(filename, file_size)
+
     def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
         """Reconnect socket to dedicated port"""
         try:
@@ -354,7 +360,7 @@ class RDTReceiver(AbstractReceiver):
                     
                     self.socket.sendto(ack.to_bytes(), addr)
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug("Timeout waiting for packet")
                 continue
             except Exception as e:

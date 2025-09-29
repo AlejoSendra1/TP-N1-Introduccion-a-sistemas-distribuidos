@@ -395,6 +395,7 @@ class FileServer:
         result = wait_for_init_packet(self.sock, timeout)
         if result:
             packet, addr = result
+            
             if packet.file_size == 0:
                 self.logger.info('devolviendo download req en wait for transfer') ##sacar
                 return DownloadRequest(self.sock, self.logger, packet, addr)
@@ -716,7 +717,7 @@ def main():
                     else:
                         logger.error(f"File not found: {filepath}")
                         request.reject("File not found")
-                elif isinstance(request, TransferRequest):
+                elif isinstance(request, ConcurrentTransferRequest):
                     logger.info(f"Transfer request from {request.source_address}: {request.filename}")
                 
                     # starts a background thread and returns immediately
