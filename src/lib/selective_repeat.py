@@ -73,15 +73,15 @@ class SelectiveRepeatSender(AbstractSender):
             # handle ACKs and timeouts
             if not self._handle_acks_and_timeouts():
                 return False
-        
-        self.logger.info("All packets sent and acknowledged successfully")
-        
+
+        self.logger.info(f"All packets sent and acknowledged successfully in session {self.session_id}")
+
         # send FIN to close session
         if self._send_fin():
-            self.logger.info("Session closed successfully")
+            self.logger.info(f"Session {self.session_id} closed successfully")
             return True
         else:
-            self.logger.error("Failed to close session")
+            self.logger.error(f"Failed to close session {self.session_id}")
             return False
     
     def _send_fin(self) -> bool:
@@ -228,7 +228,7 @@ class SelectiveRepeatSender(AbstractSender):
                 self.socket.settimeout(original_timeout)
                 return False
                 
-        self.logger.error("Failed to establish session")
+        self.logger.error("Failed to establish session after max retries")
         self.socket.settimeout(original_timeout)
         return False
 
@@ -250,7 +250,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         complete = self._process_packet(first_packet, addr)
         if complete:
             # file is complete, but continue receiving until FIN
-            self.logger.info("File transfer complete, waiting for FIN")
+            self.logger.info(f"File transfer complete, waiting for FIN in session {self.session_id}")
         
         # continue receiving packets
         while True:
@@ -263,14 +263,14 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
                 
                 if client_addr != addr:
-                    self.logger.warning(f"Received packet from unexpected address: {client_addr}")
+                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr} in session {self.session_id}")
                     continue
                 
                 packet = RDTPacket.from_bytes(data)
                 
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
-                    self.logger.info("Received FIN packet, file transfer complete")
+                    self.logger.info(f"Received FIN packet, file transfer complete in session {self.session_id}")
                     return True, self.received_data
                 
                 # process regular DATA packet
@@ -281,7 +281,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             except socket.timeout as e:
                 continue
             except Exception as e:
-                self.logger.error(f"Error receiving packet: {e}")
+                self.logger.error(f"Error receiving packet in session {self.session_id}: {e}")
                 return False, b''
     
     def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int]) -> bool:

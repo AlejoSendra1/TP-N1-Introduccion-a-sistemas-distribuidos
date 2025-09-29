@@ -95,7 +95,7 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
             response_data, addr = socket_obj.recvfrom(DATA_BUFFER_SIZE)
             
             if addr != server_addr:
-                logger.warning(f"Received response from unexpected address: {addr}")
+                logger.warning(f"Unexpected address: {addr} - expected: {server_addr} in session {init_packet.session_id}")
                 continue
                 
             response_packet = RDTPacket.from_bytes(response_data)
@@ -137,7 +137,7 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     """
     # Create appropriate receiver
     receiver = create_receiver(protocol, socket_obj, logger)
-    logger.debug(f'receiver creado')
+    logger.debug(f'Receiver created with protocol {protocol} for session {session_id}')
     try:
         
         # let receiver handle everything (first packet + rest)

@@ -33,7 +33,7 @@ class Session:
         """
         # Validate INIT packet
         if init_packet.packet_type != PacketType.INIT:
-            self.logger.error("Invalid packet type for session start")
+            self.logger.error(f"Invalid packet type for session start: {init_packet.packet_type}")
             return False
             
         # Store session information
@@ -57,7 +57,7 @@ class Session:
             self.logger.debug(f"Sent ACCEPT with session ID: {self.session_id}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to send ACCEPT: {e}")
+            self.logger.error(f"Failed to send ACCEPT for session {self.session_id}: {e}")
             return False
     
     def receive_file(self) -> Tuple[bool, bytes]:
@@ -84,7 +84,7 @@ class Session:
             return success, file_data
             
         except Exception as e:
-            self.logger.error(f"Error receiving file: {e}")
+            self.logger.error(f"Error receiving file in session {self.session_id}: {e}")
             return False, b''
     
     def _handle_fin(self):
@@ -108,8 +108,8 @@ class Session:
             self.file_size = None
                 
         except Exception as e:
-            self.logger.error(f"Error handling FIN: {e}")
-    
+            self.logger.error(f"Error handling FIN in session {self.session_id}: {e}")
+
     def reject_transfer(self, client_addr: Tuple[str, int], reason: str = "Transfer rejected"):
         """Send rejection/error response"""
         error = RDTPacket(
@@ -119,7 +119,7 @@ class Session:
         try:
             self.sock.sendto(error.to_bytes(), client_addr)
         except Exception as e:
-            self.logger.error(f"Failed to send rejection: {e}")
+            self.logger.error(f"Failed to send rejection for session {self.session_id}: {e}")
 
     def send_file(self,source):
         sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)

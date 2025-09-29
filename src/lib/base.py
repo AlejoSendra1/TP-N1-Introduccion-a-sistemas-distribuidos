@@ -308,7 +308,7 @@ class AbstractSender(ABC):
             # prepare for transfer (only DATA packets)
             packets = self._prepare_packets(filepath)
             if not packets:
-                self.logger.warning("File is empty")
+                self.logger.warning(f"File {filepath} is empty")
                 return True
             
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
@@ -405,7 +405,7 @@ class AbstractSender(ABC):
                 self.socket.settimeout(original_timeout)
                 return False
                 
-        self.logger.error("Failed to establish session")
+        self.logger.error("Failed to establish session after maximum retries")
         self.socket.settimeout(original_timeout)
         return False
 
@@ -440,24 +440,24 @@ class AbstractReceiver(ABC):
             
             # validate source
             if addr != client_addr:
-                self.logger.error(f"Packet from unexpected address: {addr}")
+                self.logger.error(f"Packet from unexpected address: {addr} - expected: {client_addr} in session {session_id}")
                 return False, b''
                 
             first_packet = RDTPacket.from_bytes(data)
             
             # validate session
             if first_packet.session_id != session_id:
-                self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+                self.logger.error(f"Invalid session ID: {first_packet.session_id} - expected: {session_id}")
                 return False, b''
             
             # delegate to subclass implementation
             return self.receive_file_with_first_packet(first_packet, client_addr) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except socket.timeout as e:
-            self.logger.error("Timeout waiting for first DATA packet")
+            self.logger.error(f"Timeout waiting for first DATA packet in session {session_id}: {e}")
             return False, b''
         except Exception as e:
-            self.logger.error(f"Error receiving first packet: {e}")
+            self.logger.error(f"Error receiving first packet in session {session_id}: {e}")
             return False, b''
     
     @abstractmethod
