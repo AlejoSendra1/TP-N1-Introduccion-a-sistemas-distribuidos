@@ -23,7 +23,7 @@ def setup_logging(verbose, quiet):
     logging.basicConfig(
         level=level,
         format=log_format,
-        handlers=[logging.StreamHandler()]
+        handlers=[logging.FileHandler('logs/download.log')]
     )
     
     return logging.getLogger(__name__)
@@ -158,7 +158,7 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
 
 def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
     
-    logger.debug("esperando fin")
+    logger.debug("Waiting for FIN from server...")
     try:
         # wait for FIN packet with timeout
         sock.settimeout(5.0)

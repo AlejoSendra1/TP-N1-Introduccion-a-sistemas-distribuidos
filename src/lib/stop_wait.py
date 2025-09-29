@@ -41,7 +41,7 @@ class RDTSender(AbstractSender):
                 packets.append(packet)
                 chunk_index += 1
         
-        self.logger.debug(f"se van a mandar {len(packets)} packets")#
+        self.logger.debug(f"{len(packets)} packets will be sent")
         return packets
     
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
@@ -76,7 +76,7 @@ class RDTSender(AbstractSender):
     
     def _send_fin(self) -> bool:
         """Send FIN packet to close session"""
-        self.logger.debug(f'id de la sesion {self.session_id}')
+        self.logger.debug(f'Sending FIN for session {self.session_id}')
         if not self.session_id:
             self.logger.warning("No session ID for FIN packet")
             return True  # no session to close
@@ -167,12 +167,12 @@ class RDTReceiver(AbstractReceiver):
     
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
-        self.logger.debug(f'checksumeando el first packet')
+        self.logger.debug(f'Verifying first packet with seq {first_packet.seq_num}')
         if not first_packet.verify_checksum():
             self.logger.error("First packet has invalid checksum")
             return False, b''
-        
-        self.logger.debug(f'mirando el seq num del first packet')
+
+        self.logger.debug(f'Checking sequence number of first packet')
         if first_packet.seq_num != self.expected_seq:
             self.logger.warning(f"Unexpected sequence number {first_packet.seq_num}, expected {self.expected_seq}")
             # send ACK for the expected sequence number (previous packet)
@@ -185,8 +185,8 @@ class RDTReceiver(AbstractReceiver):
         # send ACK for first packet (include session_id if present)
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
                        session_id=first_packet.session_id if hasattr(first_packet, 'session_id') and first_packet.session_id else '')
-        
-        self.logger.debug(f'mandando ack del first packet')
+
+        self.logger.debug(f'Sending ACK for first packet')
         self.socket.sendto(ack.to_bytes(), addr)
         self.logger.debug(f"Sent ACK for packet {first_packet.seq_num}")
         

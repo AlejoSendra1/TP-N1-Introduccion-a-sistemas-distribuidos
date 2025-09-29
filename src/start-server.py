@@ -211,7 +211,6 @@ class FileServer:
             packet, addr = result
 
             if packet.file_size == 0:
-                self.logger.info('devolviendo download req en wait for transfer') ##sacar
                 return DownloadRequest(self.sock, self.logger, packet, addr)
             return TransferRequest(self.sock, self.logger, packet, addr)
         return None
@@ -367,7 +366,7 @@ def setup_logging(verbose, quiet):
     logging.basicConfig(
         level=level,
         format=log_format,
-        handlers=[logging.StreamHandler()]
+        handlers=[logging.FileHandler('logs/server.log')]
     )
     
     return logging.getLogger(__name__)
