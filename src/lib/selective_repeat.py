@@ -36,10 +36,7 @@ class SelectiveRepeatSender(AbstractSender):
         if total_packets > 0:
             file_size = sum(len(p.data) for p in packets if p.data)
             self.logger.debug(f"Calculated file_size: {file_size} from {total_packets} packets")
-            
-            self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(self.filename, file_size):
-                return False
+
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
@@ -178,7 +175,7 @@ class SelectiveRepeatSender(AbstractSender):
         
         return True
     
-    def _perform_handshake(self, filename: str, file_size: int) -> bool:
+    def perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server"""
         # create INIT packet
         try:

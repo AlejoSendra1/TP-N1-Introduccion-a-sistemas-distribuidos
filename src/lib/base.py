@@ -367,53 +367,10 @@ class AbstractSender(ABC):
         self.socket.close()
         self.socket = None
 
+    @abstractmethod
     def perform_handshake(self, filename: str, file_size: int) -> bool:
-        """Perform handshake with server"""
-        # Create INIT packet
-        init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
-            filename=filename,
-            file_size=file_size,
-            protocol= Protocol.SELECTIVE_REPEAT
-        )
-        
-        # longer timeout for handshake
-        original_timeout = self.socket.gettimeout()
-        self.socket.settimeout(HANDSHAKE_TIMEOUT)
-        
-        for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
-            try:
-                # Send INIT
-                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
-                
-                # Wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
-                accept_packet = RDTPacket.from_bytes(accept_data)
-                
-                if (accept_packet.packet_type == PacketType.ACCEPT and 
-                    accept_packet.session_id and 
-                    accept_packet.verify_checksum()):
-                    
-                    self.session_id = accept_packet.session_id
-                    self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                    self.socket.settimeout(original_timeout)
-                    return True
-                    
-            except socket.timeout:
-                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
-                self.socket.settimeout(original_timeout)
-                return False
-                
-        self.logger.error("Failed to establish session")
-        self.socket.settimeout(original_timeout)
-        return False
+        """Perform handshake with server, must be implemented by subclasses"""
+        pass
 
     @abstractmethod
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
