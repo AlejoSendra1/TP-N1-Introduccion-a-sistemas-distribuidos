@@ -8,6 +8,7 @@ import threading
 import time
 from typing import Tuple, Optional, Dict
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
+from lib.factory import create_sender
 
 class SessionInfo:
     """Information about an active concurrent session"""
@@ -133,6 +134,16 @@ class Session:
             self.sock.sendto(error.to_bytes(), client_addr)
         except Exception as e:
             self.logger.error(f"Failed to send rejection: {e}")
+
+    def send_file(self,source):
+        sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
+        sender.session_id = self.session_id
+        if sender.send_file(source, self.filename):
+            self.logger.info("File uploaded successfully")
+
+        else:
+            self.logger.error("File upload failed")
+
 
 
 class ConcurrentTransferRequest:
@@ -384,6 +395,10 @@ class FileServer:
         result = wait_for_init_packet(self.sock, timeout)
         if result:
             packet, addr = result
+            if packet.file_size == 0:
+                self.logger.info('devolviendo download req en wait for transfer') ##sacar
+                return DownloadRequest(self.sock, self.logger, packet, addr)
+            
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
             
             # check if server is at capacity
@@ -484,6 +499,131 @@ class GracefulKiller:
         self.logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.kill_now = True
 
+class DownloadRequest:
+    """
+    Represents an incoming download request
+    Provides simple interface for server to accept/reject and send files
+    
+    Similar to TransferRequest but for download - server acts as sender
+
+        TODO: DOWNLOAD IMPLEMENTATION
+    create similar DownloadRequest class:
+    class DownloadRequest:
+        def __init__(self, sock, logger, init_packet, client_addr):
+            # Similar to TransferRequest but for download
+        
+        def accept(self, filepath: str) -> bool:
+            # 1) perform handshake (INIT -> ACCEPT)
+            # 2) create sender using factory.create_sender()
+            # 3) send file using sender.send_file(filepath, filename)
+            # 4) handle FIN/FIN-ACK
+            # 5) return success/failure
+    """
+    
+    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
+        self.sock = sock
+        self.logger = logger
+        self.init_packet = init_packet
+        self.client_addr = client_addr
+        self.session = Session(sock, logger)
+        self._session_id = None  # cache session ID after handshake
+        
+    @property
+    def filename(self) -> str:
+        """The filename requested by the client"""
+        return self.init_packet.filename
+        
+    @property
+    def protocol(self) -> Protocol:
+        """The protocol requested by the client"""
+        return self.init_packet.protocol
+        
+    @property
+    def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
+        return self.client_addr
+        
+    def accept(self, filepath: str) -> bool:
+        """
+        Do the handshake and set up for receiving incoming bytes
+        
+        Args:
+            filepath: Local path to the file to send
+        
+        Returns:
+            True if file was sent successfully, False otherwise
+        """
+        if self.session.accept_transfer(self.init_packet, self.client_addr):
+            self._session_id = self.session.session_id  # cache for future use
+            self.session.send_file(filepath)
+            return True
+        return False
+        
+    
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+        Useful for future concurrent server implementations
+        
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        return self._session_id
+        
+    def reject(self, reason: str = "Download request rejected"):
+        """
+        Reject the download request
+        
+        Args:
+            reason: Reason for rejection to send to client
+        """
+        try:
+            self.session.reject_download_request(self.client_addr, reason)
+            self.logger.info(f"Rejected download request from {self.client_addr}: {reason}")
+        except Exception as e:
+            self.logger.error(f"Error rejecting download request: {e}")
+    
+    def get_file_info(self, filepath: str) -> Optional[Tuple[str, int]]:
+        """
+        Get file information for the requested file
+        
+        Args:
+            filepath: Path to the file
+            
+        Returns:
+            Tuple of (filename, file_size) or None if file doesn't exist
+        """
+        try:
+            if not self.file_exists(filepath):
+                return None
+            
+            filename = os.path.basename(filepath)
+            file_size = os.path.getsize(filepath)
+            return filename, file_size
+        except Exception as e:
+            self.logger.error(f"Error getting file info for {filepath}: {e}")
+            return None
+
+    @staticmethod
+    def extract_session_id(packet_data: bytes) -> Optional[str]:
+        """
+        Extract session ID from raw packet data without full parsing
+        Useful for future concurrent server implementations to route packets
+        
+        Args:
+            packet_data: Raw packet bytes
+            
+        Returns:
+            Session ID or None if packet doesn't contain one
+        """
+        try:
+            # Quick extraction without full validation
+            # Session ID is at a fixed offset in the packet structure
+            packet = RDTPacket.from_bytes(packet_data)
+            return packet.session_id
+        except Exception:
+            return None
+
 def setup_logging(verbose, quiet):
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
     
@@ -557,19 +697,39 @@ def main():
             request = file_server.wait_for_transfer()
             
             if request:
-                logger.info(f"Transfer request from {request.source_address}: {request.filename}")
                 
-                # starts a background thread and returns immediately
-                result = request.accept()
-                
-                if result:
-                    success, _ = result
-                    if success:
-                        logger.info(f"Transfer accepted and started in background thread")
+                # INPROGRESS: DOWNLOAD IMPLEMENTATION
+                # handle different request types:
+                if isinstance(request, DownloadRequest):
+                    logger.info(f"Download request from {request.source_address}: {request.filename}")
+                    # handle download request
+
+                    filepath = os.path.join(args.storage, request.filename)
+                    if os.path.exists(filepath):
+                        success = request.accept(filepath)  # send file to client
+                        if success:
+                            logger.info(f"Connection setuped succesfully")
+                        else:
+                            logger.error("Connection error")
+
+                        
                     else:
-                        logger.error("Transfer failed to start")
-                else:
-                    logger.error("Handshake failed")
+                        logger.error(f"File not found: {filepath}")
+                        request.reject("File not found")
+                elif isinstance(request, TransferRequest):
+                    logger.info(f"Transfer request from {request.source_address}: {request.filename}")
+                
+                    # starts a background thread and returns immediately
+                    result = request.accept()
+                    
+                    if result:
+                        success, _ = result
+                        if success:
+                            logger.info(f"Transfer accepted and started in background thread")
+                        else:
+                            logger.error("Transfer failed to start")
+                    else:
+                        logger.error("Handshake failed")
     
     except KeyboardInterrupt as e:
         logger.info("Keyboard interrupt received")

@@ -202,6 +202,7 @@ class RDTPacket:
         """Deserialize bytes to RDTPacket"""
         # Fixed header defined as constant
         
+        
         if len(data) < HEADER_SIZE:
             raise ValueError(f"Invalid packet: too short (expected {HEADER_SIZE}, got {len(data)})")
         
@@ -223,6 +224,7 @@ class RDTPacket:
         session_id = str(session_id_byte) if session_id_byte != 0 else ''
         protocol = Protocol(protocol_value) if protocol_value != 0 else None
         
+
         # extract payload
         if len(data) < HEADER_SIZE + payload_length:
             raise ValueError("Invalid packet: payload incomplete")
@@ -322,16 +324,6 @@ class AbstractSender(ABC):
             
             return result
             
-        # TODO: DOWNLOAD IMPLEMENTATION
-        # we should add a method to receive downloaded files from server:
-        # def receive_downloaded_file(self) -> bytes:
-        #     """Receive file after download request - must be implemented by subclasses"""
-        #     # 1. Wait for DATA packets from server
-        #     # 2. Send ACKs for received packets
-        #     # 3. Handle retransmissions and timeouts
-        #     # 4. Return complete file data
-        #     pass
-            
         except FileNotFoundError as e:
             self.logger.error(f"File not found: {filepath}")
             return False
@@ -366,11 +358,62 @@ class AbstractSender(ABC):
         
         return packets
     
+    def close_connection(self):
+        self.socket.close()
+        self.socket = None
+
+    def perform_handshake(self, filename: str, file_size: int) -> bool:
+        """Perform handshake with server"""
+        # Create INIT packet
+        init_packet = RDTPacket(
+            packet_type=PacketType.INIT,
+            filename=filename,
+            file_size=file_size,
+            protocol=Protocol.STOP_WAIT
+        )
+        
+        # longer timeout for handshake
+        original_timeout = self.socket.gettimeout()
+        self.socket.settimeout(HANDSHAKE_TIMEOUT)
+        
+        for attempt in range(MAX_RETRIES):
+            if is_shutdown_requested():
+                self.socket.settimeout(original_timeout)
+                return False
+                
+            try:
+                # Send INIT
+                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
+                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+                
+                # Wait for ACCEPT
+                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_packet = RDTPacket.from_bytes(accept_data)
+                
+                if (accept_packet.packet_type == PacketType.ACCEPT and 
+                    accept_packet.session_id and 
+                    accept_packet.verify_checksum()):
+                    
+                    self.session_id = accept_packet.session_id
+                    self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                    self.socket.settimeout(original_timeout)
+                    return True
+                    
+            except socket.timeout:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+            except Exception as e:
+                self.logger.error(f"Error during handshake: {e}")
+                self.socket.settimeout(original_timeout)
+                return False
+                
+        self.logger.error("Failed to establish session")
+        self.socket.settimeout(original_timeout)
+        return False
+
     @abstractmethod
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
         """Send packets using specific protocol - must be implemented by subclasses"""
         pass
-
 
 class AbstractReceiver(ABC):
     """Abstract base class for RDT receivers"""
@@ -424,3 +467,4 @@ class AbstractReceiver(ABC):
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
+
