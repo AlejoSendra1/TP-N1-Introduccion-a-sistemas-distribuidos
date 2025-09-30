@@ -3,6 +3,7 @@ Base classes and utilities for Reliable Data Transfer (RDT) Protocol
 Contains abstract classes, packet definitions, enums, and utility functions
 """
 
+import queue
 import struct
 import time
 import socket
@@ -308,7 +309,7 @@ class AbstractSender(ABC):
             # prepare for transfer (only DATA packets)
             packets = self._prepare_packets(filepath)
             if not packets:
-                self.logger.warning("File is empty")
+                self.logger.warning(f"File {filepath} is empty")
                 return True
             
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
@@ -421,8 +422,8 @@ class AbstractReceiver(ABC):
     def __init__(self, socket: socket.socket, logger):
         self.socket = socket
         self.logger = logger
-    
-    def receive_file(self, client_addr: Tuple[str, int], session_id: str) -> Tuple[bool, bytes]:
+
+    def receive_file(self, client_addr: Tuple[str, int], session_id: str, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive complete file from client
         Handles first packet reception, validation, and delegates to subclass
@@ -439,7 +440,7 @@ class AbstractReceiver(ABC):
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
             
-            self.logger.error(f"Packet from unexpected address: {addr}")
+            #self.logger.error(f"Packet from unexpected address: {addr}")
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
@@ -450,21 +451,21 @@ class AbstractReceiver(ABC):
             
             # validate session
             if first_packet.session_id != session_id:
-                self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+                self.logger.error(f"Invalid session ID: {first_packet.session_id} - expected: {session_id}")
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr, bytes_received) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
             return False, b''
         except Exception as e:
-            self.logger.error(f"Error receiving first packet: {e}")
+            self.logger.error(f"Error receiving first packet in session {session_id}: {e}")
             return False, b''
     
     @abstractmethod
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
 
