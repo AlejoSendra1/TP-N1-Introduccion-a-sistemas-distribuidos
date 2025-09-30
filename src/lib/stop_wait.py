@@ -158,88 +158,10 @@ class RDTSender(AbstractSender):
         self.logger.error(f"Failed to send packet {packet.seq_num} after {MAX_RETRIES} attempts")
         return False
     
-    
-
-    def _perform_handshake(self, filename: str, file_size: int) -> bool:
-        """Perform handshake with server and handle dedicated port"""
-        # Create INIT packet
-        init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
-            filename=filename,
-            file_size=file_size,
-            protocol=Protocol.STOP_WAIT
-        )
-        
-        # longer timeout for handshake
-        original_timeout = self.socket.gettimeout()
-        self.socket.settimeout(HANDSHAKE_TIMEOUT)
-        
-        for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
-            try:
-                # send INIT to main server port
-                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
-                
-                # Wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
-                accept_packet = RDTPacket.from_bytes(accept_data)
-                
-                if (accept_packet.packet_type == PacketType.ACCEPT and 
-                    accept_packet.session_id and 
-                    accept_packet.verify_checksum()):
-                    
-                    self.session_id = accept_packet.session_id
-                    
-                    # extract dedicated port from payload
-                    if accept_packet.data:
-                        try:
-                            dedicated_port = int(accept_packet.data.decode('utf-8'))
-                            self.logger.info(f"Received dedicated port: {dedicated_port}")
-                            
-                            # reconnect to dedicated port
-                            if self._reconnect_to_dedicated_port(dedicated_port):
-                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                                self.socket.settimeout(original_timeout)
-                                return True
-                            else:
-                                self.logger.error("Failed to reconnect to dedicated port")
-                                
-                        except (ValueError, UnicodeDecodeError) as e:
-                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
-                    else:
-                        # no dedicated port - use original behavior
-                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                        self.socket.settimeout(original_timeout)
-                        return True
-                    
-            except timeout as e:
-                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
-                self.socket.settimeout(original_timeout)
-                return False
-                
-        self.logger.error("Failed to establish session")
-        self.socket.settimeout(original_timeout)
-        return False
-    
-    def perform_handshake(self, filename, file_size):
-        return self._perform_handshake(filename, file_size)
 
     def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
         """Reconnect socket to dedicated port"""
-        try:
-            # close current socket
-            self.socket.close()
-            
-            # create new socket for dedicated port
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.socket.settimeout(SW_TIMEOUT)
-            
+        try:            
             # update destination address to use dedicated port
             dedicated_host = self.dest_addr[0]
             self.dest_addr = (dedicated_host, dedicated_port)
@@ -346,7 +268,7 @@ class RDTReceiver(AbstractReceiver):
                                    session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
                     
                     self.socket.sendto(ack.to_bytes(), addr)
-                    self.logger.debug(f"Sent ACK for packet {packet.seq_num}")
+                    self.logger.debug(f"Sent ACK for packet {packet.seq_num} to address: {addr}")
                     
                     # prepare for next packet
                     self.expected_seq = 1 - self.expected_seq

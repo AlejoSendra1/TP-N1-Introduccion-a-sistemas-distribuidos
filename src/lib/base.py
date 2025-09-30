@@ -224,7 +224,7 @@ class RDTPacket:
         session_id = str(session_id_byte) if session_id_byte != 0 else ''
         protocol = Protocol(protocol_value) if protocol_value != 0 else None
         
-
+        print(f'el packet a armar header: {header} \n data: {data}')
         # extract payload
         if len(data) < HEADER_SIZE + payload_length:
             raise ValueError("Invalid packet: payload incomplete")
@@ -359,54 +359,88 @@ class AbstractSender(ABC):
         self.socket.close()
         self.socket = None
 
-    def perform_handshake(self, filename: str, file_size: int) -> bool:
+    def perform_handshake(self, filename: str, file_size: int, protocol: Protocol) -> bool:
         """Perform handshake with server"""
-        # # Create INIT packet
-        # init_packet = RDTPacket(
-        #     packet_type=PacketType.INIT,
-        #     filename=filename,
-        #     file_size=file_size,
-        #     protocol=Protocol.STOP_WAIT
-        # )
+        """Perform handshake with server and handle dedicated port"""
+        # Create INIT packet
+        init_packet = RDTPacket(
+            packet_type=PacketType.INIT,
+            filename=filename,
+            file_size=file_size,
+            protocol=protocol
+        )
         
-        # # longer timeout for handshake
-        # original_timeout = self.socket.gettimeout()
-        # self.socket.settimeout(HANDSHAKE_TIMEOUT)
+        # longer timeout for handshake
+        original_timeout = self.socket.gettimeout()
+        self.socket.settimeout(HANDSHAKE_TIMEOUT)
         
-        # for attempt in range(MAX_RETRIES):
-        #     if is_shutdown_requested():
-        #         self.socket.settimeout(original_timeout)
-        #         return False
+        for attempt in range(MAX_RETRIES):
+            if is_shutdown_requested():
+                self.socket.settimeout(original_timeout)
+                return False
                 
-        #     try:
-        #         # Send INIT
-        #         self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-        #         self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+            try:
+                # send INIT to main server port
+                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
+                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
                 
-        #         # Wait for ACCEPT
-        #         accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
-        #         accept_packet = RDTPacket.from_bytes(accept_data)
+                # Wait for ACCEPT
+                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_packet = RDTPacket.from_bytes(accept_data)
                 
-        #         if (accept_packet.packet_type == PacketType.ACCEPT and 
-        #             accept_packet.session_id and 
-        #             accept_packet.verify_checksum()):
+                if (accept_packet.packet_type == PacketType.ACCEPT and 
+                    accept_packet.session_id and 
+                    accept_packet.verify_checksum()):
                     
-        #             self.session_id = accept_packet.session_id
-        #             self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-        #             self.socket.settimeout(original_timeout)
-        #             return True
+                    self.session_id = accept_packet.session_id
                     
-        #     except timeout:
-        #         self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-        #     except Exception as e:
-        #         self.logger.error(f"Error during handshake: {e}")
-        #         self.socket.settimeout(original_timeout)
-        #         return False
+                    # extract dedicated port from payload
+                    if accept_packet.data:
+                        try:
+                            dedicated_port = int(accept_packet.data.decode('utf-8'))
+                            self.logger.info(f"Received dedicated port: {dedicated_port}")
+                            
+                            # reconnect to dedicated port
+                            if self._reconnect_to_dedicated_port(dedicated_port):
+                                
+
+                                # STEP 3: Send final ACK to complete handshake
+                                ack_packet = RDTPacket(
+                                    packet_type=PacketType.ACK,
+                                    session_id=self.session_id,
+                                    ack_num=0  # Acknowledge the ACCEPT
+                                )
+                                
+                                self.socket.sendto(ack_packet.to_bytes(), self.dest_addr)
+                                self.logger.info(f"[3-way HS] Step 3: Sent ACCEPT ACK - Handshake complete, session ID: {self.session_id}, to: {self.dest_addr}")
+                                
+
+                                self.socket.settimeout(original_timeout)
+                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+
+                                return True
+                            else:
+                                self.logger.error("Failed to reconnect to dedicated port")
+                                
+                        except (ValueError, UnicodeDecodeError) as e:
+                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
+                    else:
+                        # no dedicated port - use original behavior
+                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.socket.settimeout(original_timeout)
+                        return True
+                    
+            except timeout as e:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+            except Exception as e:
+                self.logger.error(f"Error during handshake: {e}")
+                self.socket.settimeout(original_timeout)
+                return False
                 
-        # self.logger.error("Failed to establish session")
-        # self.socket.settimeout(original_timeout)
-        # return False
-        pass
+        self.logger.error("Failed to establish session")
+        self.socket.settimeout(original_timeout)
+        return False
+        
 
     @abstractmethod
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
@@ -436,8 +470,6 @@ class AbstractReceiver(ABC):
             # wait for first DATA packet
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
-            
-            self.logger.error(f"Packet from unexpected address: {addr}")
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:

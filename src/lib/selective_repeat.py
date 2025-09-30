@@ -178,9 +178,9 @@ class SelectiveRepeatSender(AbstractSender):
         
         return True
     
-    
+    """
     def _perform_handshake(self, filename: str, file_size: int) -> bool:
-        """Perform handshake with server and handle dedicated port"""
+        #Perform handshake with server and handle dedicated port
         # create INIT packet
         try:
             init_packet = RDTPacket(
@@ -254,7 +254,7 @@ class SelectiveRepeatSender(AbstractSender):
         return False
     
     def perform_handshake(self, filename, file_size):
-        return self._perform_handshake(filename, file_size)
+        return self._perform_handshake(filename, file_size)"""
     
     def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
         """Reconnect socket to dedicated port"""
@@ -264,7 +264,7 @@ class SelectiveRepeatSender(AbstractSender):
             
             # create new socket for dedicated port
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.socket.settimeout(0.1)  # nonblocking for selective repeat
+            self.socket.settimeout(0.1)  # nonblocking for selective repeat UNICA DIF CON LA FUNCION DE SyW
             
             # update destination address to use dedicated port
             dedicated_host = self.dest_addr[0]

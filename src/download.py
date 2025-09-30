@@ -104,6 +104,18 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
                 if response_packet.session_id and response_packet.verify_checksum():
                     session_id = response_packet.session_id
                     logger.info(f"Download request accepted, session ID: {session_id}")
+
+                    # STEP 3: Send final ACK to complete handshake
+                    ack_packet = RDTPacket(
+                        packet_type=PacketType.ACK,
+                        session_id=session_id,
+                        ack_num=0  # Acknowledge the ACCEPT
+                    )
+                    
+                    socket_obj.sendto(ack_packet.to_bytes(), server_addr)
+                    logger.info(f"[3-way HS] Step 3: Sent ACK - Handshake complete, session ID: {session_id}")
+                    
+
                     socket_obj.settimeout(original_timeout)
                     return session_id
                 else:

@@ -101,7 +101,7 @@ def main():
         sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
         
         # perform handshake first
-        if not sender.perform_handshake(args.name, os.path.getsize(args.src)):
+        if not sender.perform_handshake(args.name, os.path.getsize(args.src), protocol):
             return False
 
         # send file using selected RDT protocol
