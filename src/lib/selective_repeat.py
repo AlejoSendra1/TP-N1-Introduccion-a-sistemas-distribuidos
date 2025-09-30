@@ -8,7 +8,7 @@ from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
-    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
+    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
     HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
 )
 
@@ -18,7 +18,7 @@ class SelectiveRepeatSender(AbstractSender):
     
     def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, dest_addr, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         
         # selective repeat state variables (as per theory)
         self.send_base = 0  # oldest unacknowledged packet
@@ -375,9 +375,9 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                     filename = delivered_packet.filename
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
-                
-                self.rcv_base += 1
-            
+
+                self.rcv_base = (self.rcv_base + 1) % 256 # wrap-around at 256
+
             if is_complete:
                 # file is complete, but don't return yet - we're waiting for FIN
                 return False

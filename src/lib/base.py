@@ -16,6 +16,7 @@ PACKET_SIZE = 4096  # 4KB packets for better throughput
 TIMEOUT = 0.2  # 200ms timeout for better reliability
 MAX_RETRIES = 20
 WINDOW_SIZE = 20  # smaller window for better reliability with packet loss
+MAX_WINDOW_SIZE = 128 # maximum window size for 8-bit sequence numbers
 
 # stop & wait specific optimizations
 SW_PACKET_SIZE = 4096  # 8KB packets for stop & wait (fewer packets = faster)
@@ -28,7 +29,7 @@ DUPLICATED_FIN_TIMEOUT = 5 # 5s timeout for duplicated FIN
 FIRST_DATA_PACKET_TIMEOUT = 5.0  # 5s timeout for first DATA packet
 
 # packet structure constants
-HEADER_SIZE = 23  # fixed header size in bytes
+HEADER_SIZE = 14  # fixed header size in bytes
 
 # buffer sizes
 ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
@@ -152,7 +153,7 @@ class RDTPacket:
         if self.session_id:
             checksum += sum(self.session_id.encode('utf-8'))
         
-        self.checksum = checksum % 65536
+        self.checksum = checksum % 256
     
     def verify_checksum(self) -> bool:
         """Verify packet integrity"""
@@ -183,12 +184,12 @@ class RDTPacket:
             except (ValueError, TypeError) as e:
                 session_id_byte = 0
         
-        # fixed binary header: 23 bytes
+        # fixed binary header: 14 bytes
         header_bytes = struct.pack(
-            '!IIIIIBBB',
-            self.seq_num,             # I (4 bytes)
-            self.checksum,            # I (4 bytes)
-            self.ack_num,             # I (4 bytes)
+            '!BBBIIBBB',
+            self.seq_num,             # B (1 bytes)
+            self.checksum,            # B (1 bytes)
+            self.ack_num,             # B (1 bytes)
             len(payload),             # I (4 bytes) - payload length
             self.file_size,           # I (4 bytes)
             self.packet_type.value,   # B (1 byte)
@@ -209,7 +210,7 @@ class RDTPacket:
         
         # extract fixed header
         header_bytes = data[:HEADER_SIZE]
-        header = struct.unpack('!IIIIIBBB', header_bytes)
+        header = struct.unpack('!BBBIIBBB', header_bytes)
         
         # parse fields from header
         seq_num = header[0]
@@ -347,7 +348,7 @@ class AbstractSender(ABC):
                     break
                 
                 packet = RDTPacket(
-                    seq_num=chunk_index,
+                    seq_num=chunk_index % 256,  # wrap around at 256
                     packet_type=PacketType.DATA,
                     data=chunk
                 )

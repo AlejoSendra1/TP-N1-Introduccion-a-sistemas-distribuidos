@@ -579,7 +579,7 @@ class DownloadRequest:
             reason: Reason for rejection to send to client
         """
         try:
-            self.session.reject_download_request(self.client_addr, reason)
+            self.session.reject_transfer(self.client_addr, reason) 
             self.logger.info(f"Rejected download request from {self.client_addr}: {reason}")
         except Exception as e:
             self.logger.error(f"Error rejecting download request: {e}")
