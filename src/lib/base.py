@@ -470,11 +470,11 @@ class AbstractReceiver(ABC):
     def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
         self.logger.debug("esperando fin")
         fin_ack = RDTPacket(
-            packet_type=PacketType.ACK,
+            packet_type=PacketType.FIN_ACK,
             session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''
         )
         self.socket.sendto(fin_ack.to_bytes(), addr)
-        while True:
+        for i in range(MAX_RETRIES):
             try:
                 # wait for duplicated FIN packet with timeout
                 self.socket.settimeout(DUPLICATED_FIN_TIMEOUT)
@@ -493,8 +493,10 @@ class AbstractReceiver(ABC):
                         f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
 
             except timeout:
-                self.logger.warning("No duplicated FIN received before timeout, finishing session")
+                self.logger.info("No duplicated FIN received before timeout, finishing session")
                 return True
             except Exception as e:
                 self.logger.error(f"Error handling FIN: {e}")
                 return False
+        self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
+        return False
