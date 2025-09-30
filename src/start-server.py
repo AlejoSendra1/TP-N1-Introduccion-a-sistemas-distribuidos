@@ -4,6 +4,8 @@ import os
 import logging
 import signal
 import random
+import threading
+import queue
 from typing import Tuple, Optional
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
 from lib.factory import create_sender
@@ -59,8 +61,8 @@ class Session:
         except Exception as e:
             self.logger.error(f"Failed to send ACCEPT for session {self.session_id}: {e}")
             return False
-    
-    def receive_file(self) -> Tuple[bool, bytes]:
+
+    def receive_file(self, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive the file after handshake
         
@@ -75,7 +77,7 @@ class Session:
         
         try:
             # let receiver handle everything (first packet + rest)
-            success, file_data = receiver.receive_file(self.client_addr, self.session_id)
+            success, file_data = receiver.receive_file(self.client_addr, self.session_id, bytes_received)
             
             if success:
                 # send FIN ACK
@@ -161,8 +163,8 @@ class TransferRequest:
     @property
     def source_address(self) -> Tuple[str, int]:
         return self.client_addr
-        
-    def accept(self) -> Optional[Tuple[bool, bytes]]:
+
+    def accept(self, bytes_received: queue.Queue) -> Optional[Tuple[bool, bytes]]:
         """
         Accept the transfer and receive the file
         
@@ -171,7 +173,7 @@ class TransferRequest:
         """
         if self.session.accept_transfer(self.init_packet, self.client_addr):
             self._session_id = self.session.session_id  # cache for future use
-            return self.session.receive_file()
+            return self.session.receive_file(bytes_received)
         return None
     
     def get_session_id(self) -> Optional[str]:
@@ -389,6 +391,17 @@ def setup_argparse():
     
     return parser.parse_args()
 
+def write_file(queue: queue.Queue, filepath: str):
+    """Thread function to write received bytes to file"""
+    dir, filename = os.path.split(filepath)
+    with open(f"{dir}/queue_{filename}", 'wb') as f:
+        while True:
+            data = queue.get()
+            if data is None:  
+                break
+            f.write(bytes(data))
+            queue.task_done()
+
 
 def main():
     # arguments parsing
@@ -452,15 +465,21 @@ def main():
                 
                     # CURRENT LOGIC (UPLOAD ONLY):
                     # simple policy: accept all transfers
-                    result = request.accept()
+
+                    filepath = os.path.join(args.storage, request.filename)
+                    bytes_received = queue.Queue()
+                    thread_writer = threading.Thread(target=write_file, args=(bytes_received, f"{filepath}"))
+                    thread_writer.start()
+
+                    result = request.accept(bytes_received)
                     
                     if result:
                         success, file_data = result
                         if success:
-                            # save the file
-                            filepath = os.path.join(args.storage, request.filename)
+                            # TODO: remove this line when using queue
                             with open(filepath, 'wb') as f:
                                 f.write(file_data)
+                            thread_writer.join()
                             logger.info(f"File saved: {filepath}")
                         else:
                             logger.error("Transfer failed")

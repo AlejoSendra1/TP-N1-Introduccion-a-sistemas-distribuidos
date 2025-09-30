@@ -1,4 +1,6 @@
+from ast import Tuple
 import os
+import queue
 import sys
 import argparse
 import logging
@@ -128,7 +130,7 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
     socket_obj.settimeout(original_timeout)
     return None
 
-def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger):
+def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
     """
     Receive file data from server after successful handshake
     
@@ -141,7 +143,7 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     try:
         
         # let receiver handle everything (first packet + rest)
-        success, file_data = receiver.receive_file(server_addr, session_id)
+        success, file_data = receiver.receive_file(server_addr, session_id, bytes_received)
         
         return success, file_data
             

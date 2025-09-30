@@ -3,6 +3,7 @@ Stop & Wait RDT Protocol Implementation
 Simple reliable data transfer with alternating sequence numbers
 """
 
+import queue
 import socket
 from typing import List, Tuple
 from .base import (
@@ -164,8 +165,8 @@ class RDTReceiver(AbstractReceiver):
     def __init__(self, socket: socket.socket, logger):
         super().__init__(socket, logger)
         self.expected_seq = 0
-    
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.debug(f'Verifying first packet with seq {first_packet.seq_num}')
         if not first_packet.verify_checksum():
@@ -192,7 +193,7 @@ class RDTReceiver(AbstractReceiver):
         
         # continue receiving remaining packets
         self.expected_seq = 1 - self.expected_seq
-        success, remaining_data = self._continue_receiving(addr)
+        success, remaining_data = self._continue_receiving(addr, bytes_received)
         
         if success:
             return True, file_data + remaining_data
@@ -200,7 +201,7 @@ class RDTReceiver(AbstractReceiver):
             return False, b''
     
 
-    def _continue_receiving(self, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+    def _continue_receiving(self, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Continue receiving remaining packets"""
         file_data = b''
         
@@ -215,14 +216,14 @@ class RDTReceiver(AbstractReceiver):
                 data, client_addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
                 
                 if client_addr != addr:
-                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr} in session {self.session_id}")
+                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr}")
                     continue
                 
                 packet = RDTPacket.from_bytes(data)
                 
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
-                    self.logger.info(f"Received FIN packet, file transfer complete in session {self.session_id}")
+                    self.logger.info(f"Received FIN packet, file transfer complete")
                     return True, file_data
                 
                 if not packet.verify_checksum():
@@ -232,6 +233,8 @@ class RDTReceiver(AbstractReceiver):
                 if packet.seq_num == self.expected_seq:
                     # correct packet received
                     file_data += packet.data
+                    for b in packet.data:
+                        bytes_received.put(b)
                     
                     # send ACK (include session_id if present)
                     ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=packet.seq_num,

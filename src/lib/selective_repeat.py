@@ -3,6 +3,7 @@ Selective Repeat RDT Protocol Implementation
 Reliable data transfer with sliding window and selective retransmission
 """
 
+import queue
 import socket
 from typing import List, Tuple, Dict
 from .base import (
@@ -241,16 +242,16 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
-    
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
         # process first packet
-        complete = self._process_packet(first_packet, addr)
+        complete = self._process_packet(first_packet, addr, bytes_received)
         if complete:
             # file is complete, but continue receiving until FIN
-            self.logger.info(f"File transfer complete, waiting for FIN in session {self.session_id}")
+            self.logger.info(f"File transfer complete, waiting for FIN")
         
         # continue receiving packets
         while True:
@@ -263,28 +264,28 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
                 
                 if client_addr != addr:
-                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr} in session {self.session_id}")
+                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr}")
                     continue
                 
                 packet = RDTPacket.from_bytes(data)
                 
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
-                    self.logger.info(f"Received FIN packet, file transfer complete in session {self.session_id}")
+                    self.logger.info(f"Received FIN packet, file transfer complete")
                     return True, self.received_data
                 
                 # process regular DATA packet
-                complete = self._process_packet(packet, addr)
+                complete = self._process_packet(packet, addr, bytes_received)
                 
                 # don't return here - continue until FIN
                     
             except socket.timeout as e:
                 continue
             except Exception as e:
-                self.logger.error(f"Error receiving packet in session {self.session_id}: {e}")
+                self.logger.error(f"Error receiving packet: {e}")
                 return False, b''
-    
-    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+
+    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> bool:
         """Process a received packet and return is_complete"""
         seq_num = packet.seq_num
         
@@ -315,7 +316,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             
             while self.rcv_base in self.rcv_window:
                 delivered_packet = self.rcv_window.pop(self.rcv_base)
-                self.received_data += delivered_packet.data
+
+                # push bytes to the queue
+                for b in delivered_packet.data:
+                    bytes_received.put(b)
+
+                self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 
                 if self.rcv_base == 0:
                     filename = delivered_packet.filename
