@@ -359,6 +359,165 @@ class TransferRequest:
         """Reject the transfer request"""
         self.session.reject_transfer(self.client_addr, reason)
 
+class ConcurrentDownloadRequest:
+    def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
+        self.file_server = file_server
+        self.init_packet = init_packet
+        self.client_addr = client_addr
+        self.logger = file_server.logger
+        self._session_id = None
+        self._dedicated_port = None
+
+    @property
+    def filename(self) -> str:
+        """The filename requested by the client"""
+        return self.init_packet.filename
+
+    @property
+    def protocol(self) -> Protocol:
+        """The protocol requested by the client"""
+        return self.init_packet.protocol
+
+    @property
+    def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
+        return self.client_addr
+
+    def _handle_dedicated_request(self, dedicated_sock: socket.socket, session_id: str):
+        try:
+            self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
+
+            # mark session as connected when dedicated thread starts
+            # if client does not connect to dedicated port, the session will be cleaned up after a timeout
+            with self.file_server.sessions_lock:
+                if session_id in self.file_server.active_sessions:
+                    self.file_server.active_sessions[session_id].connected = True
+
+            # ccreate receiver for this dedicated download
+            sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger)
+
+            storage_dir = getattr(self.file_server, 'storage_dir', 'storage')
+
+            safe_filename = os.path.basename(self.filename.strip())
+            filepath = os.path.join(storage_dir, safe_filename)
+
+
+            # the client will send DATA packets directly to this dedicated port
+            success = sender.send_file(filepath, self.filename)
+
+            if success:
+                self.logger.info(f"File download completed for session {session_id}")
+            else:
+                self.logger.error(f"File download failed for session {session_id}")
+
+        except Exception as e:
+            self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
+        finally:
+            # Cleanup session
+            self.file_server.remove_session(session_id)
+            dedicated_sock.close()
+            self.logger.info(f"Session {session_id} cleaned up")
+
+    def accept(self) -> bool:
+        """
+        Do the handshake and set up for receiving incoming bytes
+        Returns:
+            True if file was sent successfully, False otherwise
+        """
+        try:
+            # create dedicated socket and port
+            dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
+            self._dedicated_port = dedicated_port
+
+            # generate session ID
+            session_id = str(random.randint(1, 255))
+            self._session_id = session_id
+
+            # send ACCEPT with dedicated port in payload
+            accept_packet = RDTPacket(
+                packet_type=PacketType.ACCEPT,
+                session_id=session_id,
+                data=str(dedicated_port).encode('utf-8')  # port in payload
+            )
+
+            self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
+            self.logger.info(f"Sent ACCEPT to {self.client_addr} with dedicated port {dedicated_port}")
+
+            transfer_thread = threading.Thread(
+                target=self._handle_dedicated_request,
+                args=(dedicated_sock, session_id),
+                daemon=True
+            )
+
+            # create session info
+            session_info = SessionInfo(
+                session_id=session_id,
+                dedicated_port=dedicated_port,
+                thread=transfer_thread,
+                dedicated_socket=dedicated_sock,
+                client_addr=self.client_addr
+            )
+
+            # add to active sessions
+            self.file_server.add_session(session_id, session_info)
+
+            # start transfer thread
+            transfer_thread.start()
+
+            return True  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
+        except Exception as e:
+            return False
+
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+        Useful for future concurrent server implementations
+
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        return self._session_id
+
+    def reject(self, reason: str = "Download request rejected"):
+        """
+        Reject the download request
+
+        Args:
+            reason: Reason for rejection to send to client
+        """
+
+        error_packet = RDTPacket(
+            packet_type=PacketType.ERROR,
+            data=reason.encode('utf-8')
+        )
+        try:
+            self.file_server.sock.sendto(error_packet.to_bytes(), self.client_addr)
+        except Exception as e:
+            self.logger.error(f"Failed to send rejection: {e}")
+        pass
+
+
+    @staticmethod
+    def extract_session_id(packet_data: bytes) -> Optional[str]:
+        """
+        Extract session ID from raw packet data without full parsing
+        Useful for future concurrent server implementations to route packets
+
+        Args:
+            packet_data: Raw packet bytes
+
+        Returns:
+            Session ID or None if packet doesn't contain one
+        """
+        try:
+            # Quick extraction without full validation
+            # Session ID is at a fixed offset in the packet structure
+            packet = RDTPacket.from_bytes(packet_data)
+            return packet.session_id
+        except Exception:
+            return None
+
+
 
 class FileServer:
     """
@@ -384,7 +543,7 @@ class FileServer:
         
         self.logger.info(f"Concurrent server initialized (max {max_concurrent} sessions)")
         
-    def wait_for_transfer(self, timeout: Optional[float] = None) -> Optional['ConcurrentTransferRequest']:
+    def wait_for_transfer(self, timeout: Optional[float] = None) -> ConcurrentDownloadRequest | None | ConcurrentTransferRequest:
         """
         Wait for an incoming transfer request and assign dedicated port
         
@@ -398,8 +557,8 @@ class FileServer:
             
             if packet.file_size == 0:
                 self.logger.info('devolviendo download req en wait for transfer') ##sacar
-                return DownloadRequest(self.sock, self.logger, packet, addr)
-            
+                return ConcurrentDownloadRequest(self, packet, addr)
+
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
             
             # check if server is at capacity
@@ -701,17 +860,17 @@ def main():
                 
                 # INPROGRESS: DOWNLOAD IMPLEMENTATION
                 # handle different request types:
-                if isinstance(request, DownloadRequest):
+                if isinstance(request, ConcurrentDownloadRequest):
                     logger.info(f"Download request from {request.source_address}: {request.filename}")
                     # handle download request
 
                     filepath = os.path.join(args.storage, request.filename)
                     if os.path.exists(filepath):
-                        success = request.accept(filepath)  # send file to client
+                        success = request.accept()  # send file to client
                         if success:
-                            logger.info(f"Connection setuped succesfully")
+                            logger.info(f"Download accepted and started in background thread")
                         else:
-                            logger.error("Connection error")
+                            logger.error("Download failed to start")
 
                         
                     else:
