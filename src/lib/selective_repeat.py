@@ -8,8 +8,8 @@ from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
-    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
-    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
+    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE,
+    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested, FIRST_DATA_PACKET_TIMEOUT, SW_DATA_BUFFER_SIZE
 )
 
 
@@ -290,16 +290,20 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
+        self.session_id = None
+        self.dest_addr = None
     
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
         # store the client address from first packet for validation
-        client_host = addr[0]
+        if not self.dest_addr[0]:
+            self.dest_addr = addr
+        client_host = self.dest_addr[0]
         
         # process first packet  
-        complete = self._process_packet(first_packet, addr)
+        complete = self._process_packet(first_packet, self.dest_addr)
         if complete:
             # file is complete, but continue receiving until FIN
             self.logger.info("File transfer complete, waiting for FIN")
@@ -391,3 +395,108 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.debug(f"Packet {seq_num} outside receiver window, ignoring")
         
         return False
+
+    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
+        """Perform handshake with server and handle dedicated port"""
+        # Create INIT packet
+        init_packet = RDTPacket(
+            packet_type=PacketType.INIT,
+            filename=filename,
+            file_size=0,
+            protocol=Protocol.SELECTIVE_REPEAT
+        )
+
+        # longer timeout for handshake
+        original_timeout = self.socket.gettimeout()
+        self.socket.settimeout(HANDSHAKE_TIMEOUT)
+
+        for attempt in range(MAX_RETRIES):
+            if is_shutdown_requested():
+                self.socket.settimeout(original_timeout)
+                return False
+
+            try:
+                # send INIT to main server port
+                self.socket.sendto(init_packet.to_bytes(), addr)
+                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+
+                # Wait for ACCEPT
+                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_packet = RDTPacket.from_bytes(accept_data)
+
+                if (accept_packet.packet_type == PacketType.ACCEPT and
+                        accept_packet.session_id and
+                        accept_packet.verify_checksum()):
+
+                    self.session_id = accept_packet.session_id
+
+                    # extract dedicated port from payload
+                    if accept_packet.data:
+                        try:
+                            dedicated_port = int(accept_packet.data.decode('utf-8'))
+                            self.logger.info(f"Received dedicated port: {dedicated_port}")
+
+                            # reconnect to dedicated port
+                            if self._reconnect_to_dedicated_port(dedicated_port, addr):
+                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                                self.socket.settimeout(original_timeout)
+                                return True
+                            else:
+                                self.logger.error("Failed to reconnect to dedicated port")
+
+                        except (ValueError, UnicodeDecodeError) as e:
+                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
+                    else:
+                        # no dedicated port - use original behavior
+                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.socket.settimeout(original_timeout)
+                        return True
+
+            except timeout as e:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+            except Exception as e:
+                self.logger.error(f"Error during handshake: {e}")
+                self.socket.settimeout(original_timeout)
+                return False
+
+        self.logger.error("Failed to establish session")
+        self.socket.settimeout(original_timeout)
+        return False
+
+    def _reconnect_to_dedicated_port(self, dedicated_port: int, addr: Tuple[str, int]) -> bool:
+        """Reconnect socket to dedicated port"""
+        try:
+            # update destination address to use dedicated port
+            dedicated_host = addr[0]
+            self.dest_addr = (dedicated_host, dedicated_port)
+
+            # small delay to allow server thread to be ready
+            import time
+            time.sleep(0.1)
+
+            self.logger.debug(f"Reconnected to dedicated port {dedicated_port}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to reconnect to dedicated port: {e}")
+            return False
+
+    def receive_file_after_handshake(self) -> Tuple[bool, bytes]:
+        """Receive file after handshake"""
+        self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
+        data, addr = self.socket.recvfrom(DATA_BUFFER_SIZE)  # use largest buffer size to support both protocols
+
+        # validate source (only check host, not port - OS may assign different port when client is reconnecting)
+        if addr[0] != self.dest_addr[0]:
+            self.logger.error(f"Packet from unexpected host: {addr[0]} (expected {self.dest_addr[0]})")
+            return False, b''
+
+        first_packet = RDTPacket.from_bytes(data)
+
+        # validate session
+        if first_packet.session_id != self.session_id:
+            self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+            return False, b''
+
+        # delegate to subclass implementation
+        return self.receive_file_with_first_packet(first_packet, addr)  # TODO: do not separate first packet reception from the rest of the file !!!!

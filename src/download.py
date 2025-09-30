@@ -128,30 +128,19 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
     socket_obj.settimeout(original_timeout)
     return None
 
-def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger):
+def receive_downloaded_file(receiver, logger):
     """
     Receive file data from server after successful handshake
     
     Returns:
         Tuple[bool, bytes]: (success, file_data)
     """
-    # Create appropriate receiver
-    receiver = create_receiver(protocol, socket_obj, logger)
-    logger.debug(f'receiver creado')
     try:
-        
+        logger.debug("Starting download...")
         # let receiver handle everything (first packet + rest)
-        success, file_data = receiver.receive_file(server_addr, session_id)
+        success, file_data = receiver.receive_file_after_handshake()
         
         return success, file_data
-            
-    except Exception as e:
-        logger.error(f"Error receiving file: {e}")
-        return False, b''
-
-    except timeout:
-        logger.error("Timeout waiting for file data from server")
-        return False, b''
     except Exception as e:
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
@@ -221,16 +210,15 @@ def main():
     try:
         protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
+        receiver = create_receiver(protocol, clientSocket, logger)
         
         # Step 1: Perform download handshake
-        session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
-        
-        if not session_id:
+        if not receiver.perform_handshake(args.name, server_addr):
             logger.error("Failed to initiate download")
             sys.exit(1)
         
         # Step 2: Receive file data
-        success, file_data = receive_downloaded_file(clientSocket, server_addr, session_id, protocol, logger)
+        success, file_data = receive_downloaded_file(receiver, logger)
         
         if not success:
             logger.error("Failed to download file")

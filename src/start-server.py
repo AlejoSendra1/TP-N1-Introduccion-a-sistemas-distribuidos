@@ -395,6 +395,8 @@ class ConcurrentDownloadRequest:
 
             # ccreate receiver for this dedicated download
             sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger)
+            sender.session_id = session_id
+            self.logger.debug(f"Created sender for session {session_id} for client with address: {self.client_addr}")
 
             storage_dir = getattr(self.file_server, 'storage_dir', 'storage')
 

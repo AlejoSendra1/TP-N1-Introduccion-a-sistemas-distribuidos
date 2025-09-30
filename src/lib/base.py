@@ -437,8 +437,6 @@ class AbstractReceiver(ABC):
             # wait for first DATA packet
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
-            
-            self.logger.error(f"Packet from unexpected address: {addr}")
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
@@ -461,7 +459,12 @@ class AbstractReceiver(ABC):
         except Exception as e:
             self.logger.error(f"Error receiving first packet: {e}")
             return False, b''
-    
+
+    @abstractmethod
+    def receive_file_after_handshake(self):
+        pass
+
+
     @abstractmethod
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
@@ -500,3 +503,8 @@ class AbstractReceiver(ABC):
                 return False
         self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
         return False
+
+    @abstractmethod
+    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
+        """Perform handshake with server"""
+        pass
