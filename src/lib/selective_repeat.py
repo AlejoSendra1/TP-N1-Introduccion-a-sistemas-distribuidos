@@ -54,7 +54,7 @@ class SelectiveRepeatSender(AbstractSender):
                    self.nextseqnum < self.send_base + self.window_size):
                 
                 packet = packets[self.nextseqnum]
-                packet.seq_num = self.nextseqnum
+                packet.seq_num = self.nextseqnum % 256  # ensure seq_num wraps around at 256
                 
                 # add session ID to all packets
                 if self.session_id:
@@ -64,7 +64,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # send packet
                 self.socket.sendto(packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent packet {self.nextseqnum}")
+                self.logger.debug(f"Sent packet {self.nextseqnum} (seq_num={packet.seq_num})")
                 
                 # add to window with timer
                 timer = PacketTimer()
@@ -353,7 +353,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         
         # always send ACK (even for duplicates or out-of-order)
         # Include session_id if packet has it
-        ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num,
+        ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num % 256,
                        session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
         
         if not packet.verify_checksum():

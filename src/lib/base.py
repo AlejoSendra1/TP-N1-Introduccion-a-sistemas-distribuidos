@@ -122,11 +122,11 @@ class RDTPacket:
                  data: bytes = b'', filename: str = None, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
-        self.seq_num = seq_num
+        self.seq_num = seq_num % 256  # sequence number (0-255)
         self.packet_type = packet_type
         self.data = data
         self.filename = filename
-        self.ack_num = ack_num
+        self.ack_num = ack_num % 256  # acknowledgment number (0-255)
         self.protocol = protocol  # protocol for INIT packet
         self.session_id = session_id  # session identifier
         self.file_size = file_size  # file size for INIT packet
@@ -188,9 +188,9 @@ class RDTPacket:
         # fixed binary header: 14 bytes
         header_bytes = struct.pack(
             '!BBBIIBBB',
-            self.seq_num,             # B (1 bytes)
-            self.checksum,            # B (1 bytes)
-            self.ack_num,             # B (1 bytes)
+            self.seq_num % 256,             # B (1 bytes)
+            self.checksum % 256,            # B (1 bytes)
+            self.ack_num % 256,             # B (1 bytes)
             len(payload),             # I (4 bytes) - payload length
             self.file_size,           # I (4 bytes)
             self.packet_type.value,   # B (1 byte)
