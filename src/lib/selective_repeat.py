@@ -310,6 +310,8 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             # check for shutdown request
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''
             
             try:
@@ -325,7 +327,11 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
                     if self._handle_fin(packet, packet_addr):
+                        # Signal end of transmission to the writer thread
+                        bytes_received.put(None)
                         return True, self.received_data
+                    # Signal end of transmission even on error
+                    bytes_received.put(None)
                     return False, b''
                 
                 # process regular DATA packet
@@ -337,6 +343,8 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''
 
     def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> bool:
@@ -371,9 +379,9 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             while self.rcv_base in self.rcv_window:
                 delivered_packet = self.rcv_window.pop(self.rcv_base)
 
-                # push bytes to the queue
-                for b in delivered_packet.data:
-                    bytes_received.put(b)
+                # Push data chunk to the queue instead of individual bytes
+                if delivered_packet.data:  # Only put non-empty data
+                    bytes_received.put(delivered_packet.data)
 
                 self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 

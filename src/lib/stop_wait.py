@@ -281,6 +281,10 @@ class RDTReceiver(AbstractReceiver):
         
         file_data = first_packet.data
         
+        # Put the first packet data in the queue
+        if first_packet.data:
+            bytes_received.put(first_packet.data)
+        
         # send ACK for first packet (include session_id if present)
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
                        session_id=first_packet.session_id if hasattr(first_packet, 'session_id') and first_packet.session_id else '')
@@ -307,6 +311,8 @@ class RDTReceiver(AbstractReceiver):
             # check for shutdown request
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''
   
   
@@ -323,7 +329,11 @@ class RDTReceiver(AbstractReceiver):
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
                     if self._handle_fin(packet, packet_addr):
+                        # Signal end of transmission to the writer thread
+                        bytes_received.put(None)
                         return True, file_data + packet.data
+                    # Signal end of transmission even on error
+                    bytes_received.put(None)
                     return False, b''
                 
                 if not packet.verify_checksum():
@@ -333,8 +343,9 @@ class RDTReceiver(AbstractReceiver):
                 if packet.seq_num == self.expected_seq:
                     # correct packet received
                     file_data += packet.data
-                    for b in packet.data:
-                        bytes_received.put(b)
+                    # Put the entire data chunk in the queue instead of individual bytes
+                    if packet.data:  # Only put non-empty data
+                        bytes_received.put(packet.data)
                     
                     # send ACK (include session_id if present)
                     ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=packet.seq_num,
@@ -360,4 +371,6 @@ class RDTReceiver(AbstractReceiver):
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''

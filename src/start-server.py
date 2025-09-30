@@ -176,8 +176,8 @@ class ConcurrentTransferRequest:
     @property
     def source_address(self) -> Tuple[str, int]:
         return self.client_addr
-        
-    def accept(self) -> Optional[Tuple[bool, bytes]]:
+
+    def accept(self, bytes_received: queue.Queue) -> Optional[Tuple[bool, bytes]]:
         """
         Accept the transfer with dedicated port and thread
         
@@ -206,7 +206,7 @@ class ConcurrentTransferRequest:
             # create thread to handle transfer on dedicated port
             transfer_thread = threading.Thread(
                 target=self._handle_dedicated_transfer,
-                args=(dedicated_sock, session_id),
+                args=(dedicated_sock, session_id, bytes_received),
                 daemon=True
             )
             
@@ -231,7 +231,7 @@ class ConcurrentTransferRequest:
             self.logger.error(f"Failed to accept transfer: {e}")
             return None
     
-    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str):
+    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str, bytes_received: queue.Queue):
         """Handle the actual transfer on dedicated port (runs in separate thread)"""
         try:
             self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
@@ -246,7 +246,7 @@ class ConcurrentTransferRequest:
             receiver = create_receiver(self.protocol, dedicated_sock, self.logger)
             
             # the client will send DATA packets directly to this dedicated port
-            success, file_data = receiver.receive_file(self.client_addr, session_id)
+            success, file_data = receiver.receive_file(self.client_addr, session_id, bytes_received)
             
             if success:
                 # send FIN ACK to complete the transfer
@@ -543,8 +543,8 @@ class DownloadRequest:
     def source_address(self) -> Tuple[str, int]:
         """The client's address"""
         return self.client_addr
-        
-    def accept(self, filepath: str) -> bool:
+
+    def accept(self, filepath: str, _bytes_received: queue.Queue) -> bool:
         """
         Do the handshake and set up for receiving incoming bytes
         
@@ -664,7 +664,7 @@ def setup_argparse():
 def write_file(queue: queue.Queue, filepath: str):
     """Thread function to write received bytes to file"""
     dir, filename = os.path.split(filepath)
-    with open(f"{dir}/queue_{filename}", 'wb') as f:
+    with open(f"{dir}/{filename}", 'wb') as f:
         while True:
             data = queue.get()
             if data is None:  
@@ -703,11 +703,11 @@ def main():
         
         # store storage directory for use in ConcurrentTransferRequest
         file_server.storage_dir = args.storage
-        
+
         while not killer.kill_now:
             # wait for transfer request
             request = file_server.wait_for_transfer()
-            
+            bytes_received = queue.Queue()
             if request:
                 
                 # INPROGRESS: DOWNLOAD IMPLEMENTATION
@@ -718,7 +718,7 @@ def main():
 
                     filepath = os.path.join(args.storage, request.filename)
                     if os.path.exists(filepath):
-                        success = request.accept(filepath)  # send file to client
+                        success = request.accept(filepath, bytes_received)  # send file to client
                         if success:
                             logger.info(f"Connection setuped succesfully")
                         else:
@@ -735,7 +735,7 @@ def main():
                     # simple policy: accept all transfers
 
                     filepath = os.path.join(args.storage, request.filename)
-                    bytes_received = queue.Queue()
+                    
                     thread_writer = threading.Thread(target=write_file, args=(bytes_received, f"{filepath}"))
                     thread_writer.start()
 
