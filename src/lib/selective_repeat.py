@@ -5,6 +5,7 @@ Reliable data transfer with sliding window and selective retransmission
 
 import queue
 import socket
+from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
@@ -37,9 +38,9 @@ class SelectiveRepeatSender(AbstractSender):
             file_size = sum(len(p.data) for p in packets if p.data)
             self.logger.debug(f"Calculated file_size: {file_size} from {total_packets} packets")
             
-            self.socket.settimeout(TIMEOUT)
-            if not self._perform_handshake(self.filename, file_size):
-                return False
+            # self.socket.settimeout(TIMEOUT)
+            # if not self._perform_handshake(self.filename, file_size):
+            #     return False
             self.socket.settimeout(0.1)  # Back to non-blocking
         
         while self.send_base < total_packets or len(self.send_window) > 0:
@@ -112,7 +113,7 @@ class SelectiveRepeatSender(AbstractSender):
                 ack_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 ack_packet = RDTPacket.from_bytes(ack_data)
                 
-                if (ack_packet.packet_type == PacketType.ACK and 
+                if (ack_packet.packet_type == PacketType.FIN_ACK and 
                     ack_packet.session_id == self.session_id):
                     self.logger.debug("Received FIN ACK")
                     self.socket.settimeout(original_timeout)
@@ -120,7 +121,7 @@ class SelectiveRepeatSender(AbstractSender):
                 else:
                     self.logger.debug(f"Invalid FIN ACK, retrying...")
                     
-            except socket.timeout as e:
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for FIN ACK, retrying...")
             except Exception as e:
                 self.logger.error(f"Error sending FIN: {e}")
@@ -154,7 +155,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # session ID should already be set from handshake
             
-        except socket.timeout as e:
+        except timeout as e:
             pass  # no ACK received, continue
         except Exception as e:
             self.logger.error(f"Error receiving ACK: {e}")
@@ -178,8 +179,9 @@ class SelectiveRepeatSender(AbstractSender):
         
         return True
     
+    
     def _perform_handshake(self, filename: str, file_size: int) -> bool:
-        """Perform handshake with server"""
+        """Perform handshake with server and handle dedicated port"""
         # create INIT packet
         try:
             init_packet = RDTPacket(
@@ -205,7 +207,7 @@ class SelectiveRepeatSender(AbstractSender):
                 return False
                 
             try:
-                # send INIT
+                # send INIT to main server port
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
                 
@@ -218,11 +220,30 @@ class SelectiveRepeatSender(AbstractSender):
                     accept_packet.verify_checksum()):
                     
                     self.session_id = accept_packet.session_id
-                    self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                    self.socket.settimeout(original_timeout)
-                    return True
                     
-            except socket.timeout as e:
+                    #extract dedicated port from payload
+                    if accept_packet.data:
+                        try:
+                            dedicated_port = int(accept_packet.data.decode('utf-8'))
+                            self.logger.info(f"Received dedicated port: {dedicated_port}")
+                            
+                            # reconnect to dedicated port
+                            if self._reconnect_to_dedicated_port(dedicated_port):
+                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                                self.socket.settimeout(original_timeout)
+                                return True
+                            else:
+                                self.logger.error("Failed to reconnect to dedicated port")
+                                
+                        except (ValueError, UnicodeDecodeError) as e:
+                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
+                    else:
+                        # case no dedicated port - use original behavior
+                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.socket.settimeout(original_timeout)
+                        return True
+                    
+            except timeout as e:
                 self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
             except Exception as e:
                 self.logger.error(f"Error during handshake: {e}")
@@ -232,6 +253,34 @@ class SelectiveRepeatSender(AbstractSender):
         self.logger.error("Failed to establish session after max retries")
         self.socket.settimeout(original_timeout)
         return False
+    
+    def perform_handshake(self, filename, file_size):
+        return self._perform_handshake(filename, file_size)
+    
+    def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
+        """Reconnect socket to dedicated port"""
+        try:
+            #close current socket
+            self.socket.close()
+            
+            # create new socket for dedicated port
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.socket.settimeout(0.1)  # nonblocking for selective repeat
+            
+            # update destination address to use dedicated port
+            dedicated_host = self.dest_addr[0]
+            self.dest_addr = (dedicated_host, dedicated_port)
+            
+            # small delay to allow server thread to be ready
+            import time
+            time.sleep(0.1)
+            
+            self.logger.debug(f"Reconnected to dedicated port {dedicated_port}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to reconnect to dedicated port: {e}")
+            return False
 
 class SelectiveRepeatReceiver(AbstractReceiver):
     """Selective Repeat receiver implementation with buffering"""
@@ -247,7 +296,10 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
-        # process first packet
+        # store the client address from first packet for validation
+        client_host = addr[0]
+        
+        # process first packet  
         complete = self._process_packet(first_packet, addr, bytes_received)
         if complete:
             # file is complete, but continue receiving until FIN
@@ -261,25 +313,27 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 return False, b''
             
             try:
-                data, client_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
+                data, packet_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
                 
-                if client_addr != addr:
-                    self.logger.warning(f"Received packet from unexpected address: {client_addr} - expected: {addr}")
+                if packet_addr[0] != client_host:
+                    self.logger.warning(f"Received packet from unexpected host: {packet_addr[0]} (expected {client_host})")
                     continue
                 
                 packet = RDTPacket.from_bytes(data)
                 
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
-                    self.logger.info(f"Received FIN packet, file transfer complete")
-                    return True, self.received_data
+                    self.logger.info("Received FIN packet, sending FIN-ACK")
+                    if self._handle_fin(packet, packet_addr):
+                        return True, self.received_data
+                    return False, b''
                 
                 # process regular DATA packet
-                complete = self._process_packet(packet, addr, bytes_received)
+                complete = self._process_packet(packet, packet_addr, bytes_received)
                 
                 # don't return here - continue until FIN
                     
-            except socket.timeout as e:
+            except timeout as e:
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
