@@ -12,8 +12,8 @@ class MyTopo(Topo):
         h2 = self.addHost('h2')
         h3 = self.addHost('h3')
         
-        self.addLink(h1, switch, bw=10, delay='5ms', max_queue_size=1000, loss=10, use_htb=True)
-        self.addLink(h2, switch)
+        self.addLink(h1, switch, bw=10, max_queue_size=1000, loss=10, use_htb=True)
+        self.addLink(h2, switch, bw=10, max_queue_size=1000, use_htb=True)
         self.addLink(h3, switch)
 
 if __name__ == '__main__':

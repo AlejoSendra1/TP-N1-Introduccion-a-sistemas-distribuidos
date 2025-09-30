@@ -3,10 +3,10 @@ Base classes and utilities for Reliable Data Transfer (RDT) Protocol
 Contains abstract classes, packet definitions, enums, and utility functions
 """
 
-import json
 import struct
 import time
 import socket
+from socket import timeout
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Tuple, Optional, List
@@ -18,7 +18,7 @@ MAX_RETRIES = 20
 WINDOW_SIZE = 20  # smaller window for better reliability with packet loss
 
 # stop & wait specific optimizations
-SW_PACKET_SIZE = 8192  # 8KB packets for stop & wait (fewer packets = faster)
+SW_PACKET_SIZE = 4096  # 8KB packets for stop & wait (fewer packets = faster)
 SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
 
 # timeout constants for critical operations
@@ -60,6 +60,7 @@ class PacketType(Enum):
     
     # Control
     FIN = 5       # Finish transfer
+    FIN_ACK = 8   # Acknowledge FIN
     ERROR = 6     # Error message
     
     # Legacy (for download - to be implemented)
@@ -268,8 +269,7 @@ def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -
     Returns:
         Tuple[RDTPacket, client_addr] or None if timeout/error/no INIT packet
     """
-    if timeout:
-        sock.settimeout(timeout)
+    sock.settimeout(None) # timeout ccleanup
     
     try:
         data, addr = sock.recvfrom(INIT_PACKET_SIZE)  # INIT packets are small; TODO: maybe use a smaller buffer size for INIT packets (because file name cannot be that large)
@@ -280,8 +280,6 @@ def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -
         else:
             return None  # Not an INIT packet
             
-    except socket.timeout as e:
-        return None
     except Exception as e:
         return None
 
@@ -363,51 +361,52 @@ class AbstractSender(ABC):
 
     def perform_handshake(self, filename: str, file_size: int) -> bool:
         """Perform handshake with server"""
-        # Create INIT packet
-        init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
-            filename=filename,
-            file_size=file_size,
-            protocol=Protocol.STOP_WAIT
-        )
+        # # Create INIT packet
+        # init_packet = RDTPacket(
+        #     packet_type=PacketType.INIT,
+        #     filename=filename,
+        #     file_size=file_size,
+        #     protocol=Protocol.STOP_WAIT
+        # )
         
-        # longer timeout for handshake
-        original_timeout = self.socket.gettimeout()
-        self.socket.settimeout(HANDSHAKE_TIMEOUT)
+        # # longer timeout for handshake
+        # original_timeout = self.socket.gettimeout()
+        # self.socket.settimeout(HANDSHAKE_TIMEOUT)
         
-        for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
+        # for attempt in range(MAX_RETRIES):
+        #     if is_shutdown_requested():
+        #         self.socket.settimeout(original_timeout)
+        #         return False
                 
-            try:
-                # Send INIT
-                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+        #     try:
+        #         # Send INIT
+        #         self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
+        #         self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
                 
-                # Wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
-                accept_packet = RDTPacket.from_bytes(accept_data)
+        #         # Wait for ACCEPT
+        #         accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+        #         accept_packet = RDTPacket.from_bytes(accept_data)
                 
-                if (accept_packet.packet_type == PacketType.ACCEPT and 
-                    accept_packet.session_id and 
-                    accept_packet.verify_checksum()):
+        #         if (accept_packet.packet_type == PacketType.ACCEPT and 
+        #             accept_packet.session_id and 
+        #             accept_packet.verify_checksum()):
                     
-                    self.session_id = accept_packet.session_id
-                    self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                    self.socket.settimeout(original_timeout)
-                    return True
+        #             self.session_id = accept_packet.session_id
+        #             self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+        #             self.socket.settimeout(original_timeout)
+        #             return True
                     
-            except socket.timeout:
-                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
-                self.socket.settimeout(original_timeout)
-                return False
+        #     except timeout:
+        #         self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+        #     except Exception as e:
+        #         self.logger.error(f"Error during handshake: {e}")
+        #         self.socket.settimeout(original_timeout)
+        #         return False
                 
-        self.logger.error("Failed to establish session")
-        self.socket.settimeout(original_timeout)
-        return False
+        # self.logger.error("Failed to establish session")
+        # self.socket.settimeout(original_timeout)
+        # return False
+        pass
 
     @abstractmethod
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
@@ -438,9 +437,11 @@ class AbstractReceiver(ABC):
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
             
-            # validate source
-            if addr != client_addr:
-                self.logger.error(f"Packet from unexpected address: {addr}")
+            self.logger.error(f"Packet from unexpected address: {addr}")
+
+            # validate source (only check host, not port - OS may assign different port when client is reconnecting)
+            if addr[0] != client_addr[0]:
+                self.logger.error(f"Packet from unexpected host: {addr[0]} (expected {client_addr[0]})")
                 return False, b''
                 
             first_packet = RDTPacket.from_bytes(data)
@@ -451,9 +452,9 @@ class AbstractReceiver(ABC):
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, client_addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr) # TODO: do not separate first packet reception from the rest of the file !!!!
             
-        except socket.timeout as e:
+        except timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
             return False, b''
         except Exception as e:

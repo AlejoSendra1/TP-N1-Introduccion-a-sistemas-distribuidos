@@ -4,9 +4,23 @@ import os
 import logging
 import signal
 import random
-from typing import Tuple, Optional
+import threading
+import time
+from typing import Tuple, Optional, Dict
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
 from lib.factory import create_sender
+
+class SessionInfo:
+    """Information about an active concurrent session"""
+    def __init__(self, session_id: str, dedicated_port: int, thread: threading.Thread, 
+                 dedicated_socket: socket.socket, client_addr: Tuple[str, int]):
+        self.session_id = session_id
+        self.dedicated_port = dedicated_port
+        self.thread = thread
+        self.dedicated_socket = dedicated_socket
+        self.client_addr = client_addr
+        self.created_at = time.time()
+        self.connected = False  # True when dedicated thread starts for dedicated client port
 
 class Session:
     """
@@ -132,8 +146,165 @@ class Session:
 
 
 
+class ConcurrentTransferRequest:
+    """
+    Represents an incoming transfer request with concurrent handling
+    Creates dedicated port and thread for each transfer
+    """
+    
+    def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
+        self.file_server = file_server
+        self.init_packet = init_packet
+        self.client_addr = client_addr
+        self.logger = file_server.logger
+        self._session_id = None
+        self._dedicated_port = None
+        
+    @property
+    def filename(self) -> str:
+        return self.init_packet.filename
+        
+    @property
+    def file_size(self) -> int:
+        return self.init_packet.file_size
+        
+    @property
+    def protocol(self) -> Protocol:
+        return self.init_packet.protocol
+        
+    @property
+    def source_address(self) -> Tuple[str, int]:
+        return self.client_addr
+        
+    def accept(self) -> Optional[Tuple[bool, bytes]]:
+        """
+        Accept the transfer with dedicated port and thread
+        
+        Returns:
+            Tuple[bool, bytes] or None if handshake fails
+        """
+        try:
+            # create dedicated socket and port
+            dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
+            self._dedicated_port = dedicated_port
+            
+            # generate session ID
+            session_id = str(random.randint(1, 255))
+            self._session_id = session_id
+            
+            # send ACCEPT with dedicated port in payload
+            accept_packet = RDTPacket(
+                packet_type=PacketType.ACCEPT,
+                session_id=session_id,
+                data=str(dedicated_port).encode('utf-8')  # port in payload
+            )
+            
+            self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
+            self.logger.info(f"Sent ACCEPT to {self.client_addr} with dedicated port {dedicated_port}")
+            
+            # create thread to handle transfer on dedicated port
+            transfer_thread = threading.Thread(
+                target=self._handle_dedicated_transfer,
+                args=(dedicated_sock, session_id),
+                daemon=True
+            )
+            
+            # create session info
+            session_info = SessionInfo(
+                session_id=session_id,
+                dedicated_port=dedicated_port,
+                thread=transfer_thread,
+                dedicated_socket=dedicated_sock,
+                client_addr=self.client_addr
+            )
+            
+            #add to active sessions
+            self.file_server.add_session(session_id, session_info)
+            
+            # start transfer thread
+            transfer_thread.start()
+            
+            return True, b''  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to accept transfer: {e}")
+            return None
+    
+    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str):
+        """Handle the actual transfer on dedicated port (runs in separate thread)"""
+        try:
+            self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
+            
+            # mark session as connected when dedicated thread starts
+            # if client does not connect to dedicated port, the session will be cleaned up after a timeout
+            with self.file_server.sessions_lock:
+                if session_id in self.file_server.active_sessions:
+                    self.file_server.active_sessions[session_id].connected = True
+            
+            # ccreate receiver for this dedicated transfer
+            receiver = create_receiver(self.protocol, dedicated_sock, self.logger)
+            
+            # the client will send DATA packets directly to this dedicated port
+            success, file_data = receiver.receive_file(self.client_addr, session_id)
+            
+            if success:
+                # send FIN ACK to complete the transfer
+                fin_ack = RDTPacket(
+                    packet_type=PacketType.FIN_ACK,
+                    session_id=session_id
+                )
+                dedicated_sock.sendto(fin_ack.to_bytes(), self.client_addr)
+                self.logger.debug(f"Sent FIN ACK for session {session_id}")
+                
+                self._save_file(file_data)
+                self.logger.info(f"File transfer completed for session {session_id}")
+            else:
+                self.logger.error(f"File transfer failed for session {session_id}")
+                
+        except Exception as e:
+            self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
+        finally:
+            # Cleanup session
+            self.file_server.remove_session(session_id)
+            dedicated_sock.close()
+            self.logger.info(f"Session {session_id} cleaned up")
+    
+    def _save_file(self, file_data: bytes):
+        """Save received file to storage"""
+        try:
+            # get storage directory from file server
+            storage_dir = getattr(self.file_server, 'storage_dir', 'storage')
+            
+            os.makedirs(storage_dir, exist_ok=True)
+            safe_filename = os.path.basename(self.filename.strip())
+            filepath = os.path.join(storage_dir, safe_filename)
+            
+            with open(filepath, 'wb') as f:
+                f.write(file_data)
+            self.logger.info(f"File saved: {filepath}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save file: {e}")
+    
+    def get_session_id(self) -> Optional[str]:
+        """Get the session ID after acceptance"""
+        return self._session_id
+        
+    def reject(self, reason: str = "Transfer rejected"):
+        """Reject the transfer request"""
+        error_packet = RDTPacket(
+            packet_type=PacketType.ERROR,
+            data=reason.encode('utf-8')
+        )
+        try:
+            self.file_server.sock.sendto(error_packet.to_bytes(), self.client_addr)
+        except Exception as e:
+            self.logger.error(f"Failed to send rejection: {e}")
+
+
 class TransferRequest:
     """
+    Legacy TransferRequest class for backward compatibility
     Represents an incoming transfer request
     Provides simple interface for server to accept/reject
     """
@@ -191,30 +362,130 @@ class TransferRequest:
 
 class FileServer:
     """
-    High-level file server interface
-    Handles incoming connections and transfer requests
+    High-level concurrent file server interface
+    Handles incoming connections and transfer requests with dedicated ports
     """
     
-    def __init__(self, sock: socket.socket, logger):
+    def __init__(self, sock: socket.socket, logger, max_concurrent: int = 10):
         self.sock = sock
         self.logger = logger
+        self.max_concurrent = max_concurrent
         
-    def wait_for_transfer(self, timeout: Optional[float] = None) -> Optional[TransferRequest]:
+        # for concurrent session management
+        self.active_sessions: Dict[str, SessionInfo] = {}
+        self.sessions_lock = threading.Lock()
+        
+        # server host for binding dedicated sockets
+        self.host = sock.getsockname()[0]
+        
+        # start cleanup thread
+        self.cleanup_thread = threading.Thread(target=self._cleanup_sessions, daemon=True)
+        self.cleanup_thread.start()
+        
+        self.logger.info(f"Concurrent server initialized (max {max_concurrent} sessions)")
+        
+    def wait_for_transfer(self, timeout: Optional[float] = None) -> Optional['ConcurrentTransferRequest']:
         """
-        Wait for an incoming transfer request
+        Wait for an incoming transfer request and assign dedicated port
         
         Returns:
-            TransferRequest object or None if timeout/error
+            ConcurrentTransferRequest object or None if timeout/error/server full
         """
+        self.logger.debug(f"Waiting for transfer request (timeout={timeout})")
         result = wait_for_init_packet(self.sock, timeout)
         if result:
             packet, addr = result
-
+            
             if packet.file_size == 0:
                 self.logger.info('devolviendo download req en wait for transfer') ##sacar
                 return DownloadRequest(self.sock, self.logger, packet, addr)
-            return TransferRequest(self.sock, self.logger, packet, addr)
+            
+            self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
+            
+            # check if server is at capacity
+            with self.sessions_lock:
+                if len(self.active_sessions) >= self.max_concurrent:
+                    self.logger.warning(f"Server at capacity ({self.max_concurrent} sessions), rejecting client {addr}")
+                    self._send_error(addr, "Server at capacity, try again later")
+                    return None
+            
+            return ConcurrentTransferRequest(self, packet, addr)
+        else:
+            self.logger.debug("No INIT packet received (timeout or error)")
         return None
+    
+    def _send_error(self, addr: Tuple[str, int], message: str):
+        """Send error packet to client"""
+        error_packet = RDTPacket(
+            packet_type=PacketType.ERROR,
+            data=message.encode('utf-8')
+        )
+        try:
+            self.sock.sendto(error_packet.to_bytes(), addr)
+        except Exception as e:
+            self.logger.error(f"Failed to send error to {addr}: {e}")
+    
+    def _create_dedicated_socket(self) -> Tuple[socket.socket, int]:
+        """Create a dedicated socket with dynamic port assignment"""
+        dedicated_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        dedicated_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # because our server assigns dynamic ports, we need to allow reuse of the same port (to avoid Address already in use errors)
+        
+        # bind to dynamic port (0 = OS assigns available port)
+        dedicated_sock.bind((self.host, 0))
+        dedicated_port = dedicated_sock.getsockname()[1]
+        
+        self.logger.debug(f"Created dedicated socket on port {dedicated_port}")
+        return dedicated_sock, dedicated_port
+    
+    def _cleanup_sessions(self):
+        """Background thread to cleanup expired sessions"""
+        SESSION_TIMEOUT = 30  # 30 seconds timeout for abandoned sessions
+        
+        while True:
+            try:
+                time.sleep(5)  # check every 5 seconds
+                current_time = time.time()
+                
+                with self.sessions_lock:
+                    expired_sessions = []
+                    for session_id, session_info in self.active_sessions.items():
+                        # clean up sessions that have not connected or finished threads
+                        if (not session_info.connected and 
+                            current_time - session_info.created_at > SESSION_TIMEOUT) or \
+                           (not session_info.thread.is_alive()):
+                            expired_sessions.append(session_id)
+                    
+                    for session_id in expired_sessions:
+                        self._remove_session(session_id)
+                        
+            except Exception as e:
+                self.logger.error(f"Error in cleanup thread: {e}")
+    
+    def _remove_session(self, session_id: str):
+        """Remove session and cleanup resources (must be called with sessions_lock held)"""
+        if session_id in self.active_sessions:
+            session_info = self.active_sessions[session_id]
+            
+            # close dedicated socket
+            try:
+                session_info.dedicated_socket.close()
+            except Exception as e:
+                self.logger.debug(f"Error closing socket for session {session_id}: {e}")
+            
+            # remove from active sessions
+            del self.active_sessions[session_id]
+            self.logger.debug(f"Cleaned up session {session_id} (port {session_info.dedicated_port})")
+    
+    def add_session(self, session_id: str, session_info: SessionInfo):
+        """Add new session to active sessions"""
+        with self.sessions_lock:
+            self.active_sessions[session_id] = session_info
+            self.logger.info(f"Added session {session_id} on port {session_info.dedicated_port}")
+    
+    def remove_session(self, session_id: str):
+        """Remove session (public method)"""
+        with self.sessions_lock:
+            self._remove_session(session_id)
 
 
 class GracefulKiller:
@@ -416,15 +687,15 @@ def main():
         logger.info(f"Storage directory: {args.storage}")
         logger.info("Press Ctrl+C to stop")
         
-        # create file server
-        file_server = FileServer(sock, logger)
+        # create concurrent file server
+        file_server = FileServer(sock, logger, max_concurrent=10)
+        
+        # store storage directory for use in ConcurrentTransferRequest
+        file_server.storage_dir = args.storage
         
         while not killer.kill_now:
             # wait for transfer request
-            request = file_server.wait_for_transfer(timeout=1.0)
-            
-            # TODO: CONCURRENT SERVER IMPLEMENTATION
-            # handle concurrent requests
+            request = file_server.wait_for_transfer()
             
             if request:
                 
@@ -446,25 +717,18 @@ def main():
                     else:
                         logger.error(f"File not found: {filepath}")
                         request.reject("File not found")
-                elif isinstance(request, TransferRequest):
+                elif isinstance(request, ConcurrentTransferRequest):
                     logger.info(f"Transfer request from {request.source_address}: {request.filename}")
-
-                    # handle upload request (current logic)
                 
-                    # CURRENT LOGIC (UPLOAD ONLY):
-                    # simple policy: accept all transfers
+                    # starts a background thread and returns immediately
                     result = request.accept()
                     
                     if result:
-                        success, file_data = result
+                        success, _ = result
                         if success:
-                            # save the file
-                            filepath = os.path.join(args.storage, request.filename)
-                            with open(filepath, 'wb') as f:
-                                f.write(file_data)
-                            logger.info(f"File saved: {filepath}")
+                            logger.info(f"Transfer accepted and started in background thread")
                         else:
-                            logger.error("Transfer failed")
+                            logger.error("Transfer failed to start")
                     else:
                         logger.error("Handshake failed")
     
