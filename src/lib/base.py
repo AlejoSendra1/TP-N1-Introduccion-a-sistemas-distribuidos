@@ -493,7 +493,7 @@ class AbstractReceiver(ABC):
                         f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
 
             except timeout:
-                self.logger.info("No duplicated FIN received before timeout, finishing session")
+                self.logger.debug("No duplicated FIN received before timeout, finishing session")
                 return True
             except Exception as e:
                 self.logger.error(f"Error handling FIN: {e}")
