@@ -260,7 +260,7 @@ class RDTPacket:
         
         # Set checksum (no recalculate)
         packet.checksum = checksum % SEQ_NUM_MODULO
-         
+
         return packet
 
 
@@ -435,7 +435,7 @@ class AbstractReceiver(ABC):
             client_addr: Expected client address
             session_id: Expected session ID
             data_queue: Queue to store received data chunks
-            
+
         Returns:
             Tuple[bool, bytes]: (success, file_data)
         """
@@ -467,7 +467,12 @@ class AbstractReceiver(ABC):
         except Exception as e:
             self.logger.error(f"Error receiving first packet in session {session_id}: {e}")
             return False, b''
-    
+
+    @abstractmethod
+    def receive_file_after_handshake(self):
+        pass
+
+
     @abstractmethod
     def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
@@ -506,3 +511,8 @@ class AbstractReceiver(ABC):
                 return False
         self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
         return False
+
+    @abstractmethod
+    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
+        """Perform handshake with server"""
+        pass

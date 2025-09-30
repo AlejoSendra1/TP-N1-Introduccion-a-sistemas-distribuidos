@@ -138,12 +138,13 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
     return None
 
 def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger, data_queue: queue.Queue) -> Tuple[bool, bytes]:
+def receive_downloaded_file(receiver, logger):
     """
     Receive file data from server after successful handshake
     
     Args:
         data_queue: Queue to store received data chunks
-    
+
     Returns:
         Tuple[bool, bytes]: (success, file_data)
     """
@@ -151,19 +152,12 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     receiver = create_receiver(protocol, socket_obj, logger)
     logger.debug(f'Receiver created with protocol {protocol} for session {session_id}')
     try:
-        
+        logger.debug("Starting download...")
         # let receiver handle everything (first packet + rest)
         success, file_data = receiver.receive_file(server_addr, session_id, data_queue)
-        
-        return success, file_data
-            
-    except Exception as e:
-        logger.error(f"Error receiving file: {e}")
-        return False, b''
+        success, file_data = receiver.receive_file_after_handshake()
 
-    except timeout:
-        logger.error("Timeout waiting for file data from server")
-        return False, b''
+        return success, file_data
     except Exception as e:
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
@@ -203,14 +197,14 @@ def write_to_file(data_queue: queue.Queue, dst_path: str, logger):
     """Thread function to write bytes from queue to file"""
     # Use the dst_path directly instead of reconstructing it
     filepath = dst_path
-    
+
     try:
         # Create dst directory if it doesn't exist
         dst_dir = os.path.dirname(filepath)
         if dst_dir and not os.path.exists(dst_dir):
             os.makedirs(dst_dir)
             logger.debug(f"Created dst directory: {dst_dir}")
-            
+
         logger.debug(f"Writing to file: {filepath}")
         with open(filepath, 'wb') as f:
             while True:
@@ -257,10 +251,11 @@ def main():
     try:
         protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
-        
+        receiver = create_receiver(protocol, clientSocket, logger)
+
         # Step 1: Perform download handshake
         session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
-        
+
         if not session_id:
             logger.error("Failed to initiate download")
             sys.exit(1)
@@ -286,7 +281,7 @@ def main():
             if not success:
                 logger.error("Failed to download file")
                 sys.exit(1)
-                
+
             # Check if the file was written successfully
             if os.path.exists(args.dst):
                 file_size = os.path.getsize(args.dst)
@@ -296,7 +291,7 @@ def main():
                 logger.debug(f"Current working directory: {os.getcwd()}")
                 logger.debug(f"Files in current directory: {os.listdir('.')}")
                 sys.exit(1)
-                
+
         except Exception as e:
             logger.error(f"Failed to save file: {e}")
             sys.exit(1)
