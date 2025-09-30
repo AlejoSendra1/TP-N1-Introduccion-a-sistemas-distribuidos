@@ -323,17 +323,9 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
-                    # send FIN_ACK
-                    fin_ack = RDTPacket(
-                        packet_type=PacketType.FIN_ACK,
-                        session_id=packet.session_id
-                    )
-                    try:
-                        self.socket.sendto(fin_ack.to_bytes(), packet_addr)
-                        self.logger.debug("Sent FIN-ACK packet")
-                    except Exception as e:
-                        self.logger.error(f"Error sending FIN-ACK: {e}")
-                    return True, self.received_data
+                    if self._handle_fin(packet, packet_addr):
+                        return True, self.received_data
+                    return False, b''
                 
                 # process regular DATA packet
                 complete = self._process_packet(packet, packet_addr)

@@ -24,6 +24,7 @@ SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
 # timeout constants for critical operations
 HANDSHAKE_TIMEOUT = 1 # 1s timeout for INIT/ACCEPT handshake
 FIN_TIMEOUT = 1  # 1s timeout for FIN/FIN-ACK handshake
+DUPLICATED_FIN_TIMEOUT = 5 # 5s timeout for duplicated FIN
 FIRST_DATA_PACKET_TIMEOUT = 5.0  # 5s timeout for first DATA packet
 
 # packet structure constants
@@ -466,3 +467,36 @@ class AbstractReceiver(ABC):
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
 
+    def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+        self.logger.debug("esperando fin")
+        fin_ack = RDTPacket(
+            packet_type=PacketType.FIN_ACK,
+            session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''
+        )
+        self.socket.sendto(fin_ack.to_bytes(), addr)
+        for i in range(MAX_RETRIES):
+            try:
+                # wait for duplicated FIN packet with timeout
+                self.socket.settimeout(DUPLICATED_FIN_TIMEOUT)
+                data, rcv_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
+                packet = RDTPacket.from_bytes(data)
+                if (packet.packet_type == PacketType.FIN and
+                        fin_packet.session_id == packet.session_id and
+                        addr == rcv_addr):
+
+                    # send FIN ACK
+                    self.socket.sendto(fin_ack.to_bytes(), addr)
+                    self.logger.info(f"Session {fin_packet.session_id} resending FIN ACK")
+
+                else:
+                    self.logger.warning(
+                        f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
+
+            except timeout:
+                self.logger.info("No duplicated FIN received before timeout, finishing session")
+                return True
+            except Exception as e:
+                self.logger.error(f"Error handling FIN: {e}")
+                return False
+        self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
+        return False
