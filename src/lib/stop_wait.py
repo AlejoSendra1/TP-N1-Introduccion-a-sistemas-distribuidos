@@ -321,17 +321,9 @@ class RDTReceiver(AbstractReceiver):
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
-                    # send FIN_ACK to acknowledge the FIN
-                    fin_ack = RDTPacket(
-                        packet_type=PacketType.FIN_ACK,
-                        session_id=packet.session_id
-                    )
-                    try:
-                        self.socket.sendto(fin_ack.to_bytes(), packet_addr)
-                        self.logger.debug("Sent FIN-ACK packet")
-                    except Exception as e:
-                        self.logger.error(f"Error sending FIN-ACK: {e}")
-                    return True, file_data
+                    if self._handle_fin(packet, packet_addr):
+                        return True, file_data + packet.data
+                    return False, b''
                 
                 if not packet.verify_checksum():
                     self.logger.error(f"Packet {packet.seq_num} has invalid checksum")
