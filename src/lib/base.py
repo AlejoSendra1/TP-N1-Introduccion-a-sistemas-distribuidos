@@ -191,11 +191,11 @@ class RDTPacket:
             self.seq_num % 256,             # B (1 bytes)
             self.checksum % 256,            # B (1 bytes)
             self.ack_num % 256,             # B (1 bytes)
-            len(payload),             # I (4 bytes) - payload length
-            self.file_size,           # I (4 bytes)
-            self.packet_type.value,   # B (1 byte)
+            len(payload),                   # I (4 bytes) - payload length
+            self.file_size,                 # I (4 bytes)
+            self.packet_type.value,         # B (1 byte)
             self.protocol.value if self.protocol else 0,  # B (1 byte)
-            session_id_byte           # B (1 byte) - session ID (0-255)
+            session_id_byte                 # B (1 byte) - session ID (0-255)
         )
         
         return header_bytes + payload
@@ -245,19 +245,19 @@ class RDTPacket:
             packet_data = payload
         
         packet = cls(
-            seq_num=seq_num,
+            seq_num=seq_num % 256,
             packet_type=packet_type,
             data=packet_data,
             filename=filename,
-            ack_num=ack_num,
+            ack_num=ack_num % 256,
             protocol=protocol,
             session_id=session_id,
             file_size=file_size
         )
         
         # Set checksum (no recalculate)
-        packet.checksum = checksum
-        
+        packet.checksum = checksum % 256
+         
         return packet
 
 

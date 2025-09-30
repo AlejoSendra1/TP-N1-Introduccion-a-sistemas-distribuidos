@@ -138,15 +138,20 @@ class SelectiveRepeatSender(AbstractSender):
             # try to receive ACK (non-blocking)
             ack_data, _addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
             ack_packet = RDTPacket.from_bytes(ack_data)
-            
+            acked_packet_num = None
+            for packet_num in list(self.send_window.keys()):
+                if (packet_num % 256) == ack_packet.ack_num:
+                    acked_packet_num = packet_num
+                    break
+
             if (ack_packet.packet_type == PacketType.ACK and 
                 ack_packet.verify_checksum() and
-                ack_packet.ack_num in self.send_window):
-                
+                acked_packet_num in self.send_window):
+
                 # remove acknowledged packet from window
-                del self.send_window[ack_packet.ack_num]
-                self.logger.debug(f"Received ACK for packet {ack_packet.ack_num}")
-                
+                del self.send_window[acked_packet_num]
+                self.logger.debug(f"Received ACK for packet {acked_packet_num}")
+
                 # advance send_base if possible
                 while self.send_base not in self.send_window and self.send_base < self.nextseqnum:
                     self.send_base += 1
@@ -287,7 +292,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
     
     def __init__(self, socket: socket.socket, logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
@@ -349,11 +354,11 @@ class SelectiveRepeatReceiver(AbstractReceiver):
 
     def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> bool:
         """Process a received packet and return is_complete"""
-        seq_num = packet.seq_num
+        seq_num = packet.seq_num % 256  # ensure seq_num wraps around at 256    
         
         # always send ACK (even for duplicates or out-of-order)
         # Include session_id if packet has it
-        ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num % 256,
+        ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=seq_num,
                        session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
         
         if not packet.verify_checksum():
@@ -363,7 +368,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.socket.sendto(ack.to_bytes(), addr)
         
         
-        if seq_num >= self.rcv_base and seq_num < self.rcv_base + self.window_size:
+        if self._is_in_window(seq_num, self.rcv_base, self.window_size):
             # packet is within receiver window
             if seq_num not in self.rcv_window:
                 # new packet, buffer it
@@ -405,3 +410,17 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.debug(f"Packet {seq_num} outside receiver window, ignoring")
         
         return False
+    
+    def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
+        """Check if sequence number is within window (handles wrap-around)"""
+        # Calculate window end with wrap-around
+        window_end = (base + window_size) % 256
+        
+        if base < window_end:
+            # Normal case: no wrap-around
+            # Window: [base, window_end)
+            return base <= seq_num < window_end
+        else:
+            # Wrap-around case
+            # Window: [base, 255] ∪ [0, window_end)
+            return seq_num >= base or seq_num < window_end
