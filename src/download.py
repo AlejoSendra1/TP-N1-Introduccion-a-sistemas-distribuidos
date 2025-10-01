@@ -169,37 +169,6 @@ def receive_downloaded_file(receiver, logger, data_queue: queue.Queue) -> Tuple[
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
 
-# TODO: esta fn creo que ya la podemos borrar, la dejo mientras por las dudas
-def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
-    
-    logger.debug("Waiting for FIN from server...")
-    try:
-        # wait for FIN packet with timeout
-        sock.settimeout(5.0)
-        data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
-        fin_packet = RDTPacket.from_bytes(data)
-        
-        if (fin_packet.packet_type == PacketType.FIN and 
-            fin_packet.session_id == session_id and
-            addr == serv_addr):
-            
-            # send FIN ACK
-            fin_ack = RDTPacket(
-                packet_type=PacketType.ACK,
-                session_id=session_id
-            )
-            sock.sendto(fin_ack.to_bytes(), addr)
-            logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
-            
-        else:
-            logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
-            
-    except timeout:
-        logger.warning("No FIN received, session may be incomplete")
-    except Exception as e:
-        logger.error(f"Error handling FIN: {e}")
-    
-
 def write_to_file(data_queue: queue.Queue, dst_path: str, logger):
     """Thread function to write bytes from queue to file"""
     # Use the dst_path directly instead of reconstructing it
@@ -262,8 +231,6 @@ def main():
         logger.debug(f'Receiver created with protocol {protocol}')
 
         # Step 1: Perform download handshake
-    #    session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
-
         if not receiver.perform_handshake(args.name, server_addr):
             logger.error("Failed to initiate download")
             sys.exit(1)
@@ -277,8 +244,6 @@ def main():
         if not success:
             logger.error("Failed to download file")
             sys.exit(1)
-
-        # handle_fin(clientSocket,server_addr,session_id,logger)
 
         # Step 3: Wait for thread writer to finish and check for success
         try:

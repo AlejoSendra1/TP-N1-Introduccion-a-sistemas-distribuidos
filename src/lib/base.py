@@ -510,7 +510,7 @@ class AbstractReceiver(ABC):
         pass
 
     def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
-        self.logger.debug("esperando fin")
+        self.logger.debug(f"Handling FIN packet for session {fin_packet.session_id}")
         fin_ack = RDTPacket(
             packet_type=PacketType.FIN_ACK,
             session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''

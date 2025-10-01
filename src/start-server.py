@@ -142,11 +142,12 @@ class ConcurrentTransferRequest(AbstractRequest):
                     self.logger.debug(f"Packet received from client")
                     ack_packet = RDTPacket.from_bytes(ack_data)
                     
+                    # accept both ACK and DATA as valid handshake completion
+                    # (client may send first DATA packet immediately after ACK)
                     if ((ack_packet.packet_type == PacketType.ACK and 
                         ack_packet.session_id == self._session_id and
-                        ack_packet.verify_checksum()) or ack_packet.packet_type == PacketType.DATA): # PUENTIANDO ANDO
-                        #self.file_server.sock = dedicated_sock
-                        self.logger.info(f"[3-way HS] Step 3: Received {ack_packet.packet_type} - Handshake complete")
+                        ack_packet.verify_checksum()) or ack_packet.packet_type == PacketType.DATA):
+                        self.logger.info(f"[3-way HS] Received {ack_packet.packet_type} - Handshake complete")
                         break
                     else:
                         self.logger.debug(f"Invalid ACK packet, waiting...")
@@ -358,8 +359,7 @@ class ConcurrentDownloadRequest(AbstractRequest):
                     
                     if (ack_packet.packet_type == PacketType.ACK and 
                         ack_packet.session_id == self._session_id and
-                        ack_packet.verify_checksum()): # PUENTIANDO ANDO
-                        #self.file_server.sock = dedicated_sock
+                        ack_packet.verify_checksum()):
                         self.logger.info(f"[3-way HS] Step 3: Received {ack_packet.packet_type} - Handshake complete")
                         break
                     else:
@@ -472,7 +472,7 @@ class FileServer:
             packet, addr = result
             
             if packet.file_size == 0:
-                self.logger.info('devolviendo download req en wait for transfer') ##sacar
+                self.logger.debug(f"Received download request from {addr} for '{packet.filename}'")
                 return ConcurrentDownloadRequest(self, packet, addr)
 
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
