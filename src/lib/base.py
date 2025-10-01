@@ -230,7 +230,6 @@ class RDTPacket:
         session_id = str(session_id_byte) if session_id_byte != 0 else ''
         protocol = Protocol(protocol_value) if protocol_value != 0 else None
         
-        print(f'el packet a armar header: {header} \n data: {data}')
         # extract payload
         if len(data) < HEADER_SIZE + payload_length:
             raise ValueError("Invalid packet: payload incomplete")
@@ -477,11 +476,6 @@ class AbstractReceiver(ABC):
             # wait for first DATA packet
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
-<<<<<<< HEAD
-=======
-            
-            #self.logger.error(f"Packet from unexpected address: {addr}")
->>>>>>> concurrent-download
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
@@ -549,7 +543,6 @@ class AbstractReceiver(ABC):
         self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
         return False
 
-    @abstractmethod
-    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
-        """Perform handshake with server"""
+    def perform_handshake(self, filename: str, protocol: Protocol) -> bool:
+        """Perform handshake with server and handle dedicated port"""
         pass

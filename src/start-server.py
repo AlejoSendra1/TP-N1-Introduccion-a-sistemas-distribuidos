@@ -9,12 +9,8 @@ import queue
 import time
 from abc import ABC, abstractmethod
 from typing import Tuple, Optional, Dict
-<<<<<<< HEAD
-from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
-from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
-=======
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet, SEQ_NUM_MODULO
->>>>>>> concurrent-download
+from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
 from lib.factory import create_sender
 
 class AbstractRequest(ABC):
@@ -45,16 +41,6 @@ class AbstractRequest(ABC):
         """The client's address"""
         pass
 
-    @abstractmethod
-    def get_session_id(self) -> Optional[str]:
-        """
-        Get the session ID after acceptance
-
-        Returns:
-            Session ID or None if not yet accepted
-        """
-        pass
-
 
 class SessionInfo:
     """Information about an active concurrent session"""
@@ -71,165 +57,7 @@ class SessionInfo:
 
 class ConcurrentTransferRequest(AbstractRequest):
     """
-<<<<<<< HEAD
-    Manages a complete RDT file transfer session
-    Handles handshake and delegates to appropriate receiver
-    """
-    
-    def __init__(self, sock: socket.socket, logger):
-        self.sock = sock
-        self.logger = logger
-        self.session_id = None
-        self.client_addr = None
-        self.protocol = None
-        self.filename = None
-        self.file_size = None
-        
-    def accept_transfer(self, init_packet: RDTPacket, client_addr: Tuple[str, int]) -> bool:
-        """
-        Accept an incoming transfer request
-        Performs handshake and prepares for transfer
-        
-        Returns:
-            bool: True if handshake successful
-        """
-        # Validate INIT packet
-        if init_packet.packet_type != PacketType.INIT:
-            self.logger.error("Invalid packet type for session start")
-            return False
-            
-        # Store session information
-        self.client_addr = client_addr
-        self.protocol = init_packet.protocol
-        self.filename = init_packet.filename
-        self.file_size = init_packet.file_size
-        # generate session ID as single byte (1-255, 0 reserved for INIT)
-        self.session_id = str(random.randint(1, 255)) # TODO: use a better session ID generation method, to avoid collisions
-        
-        self.logger.info(f"Accepting transfer for {self.filename} using {self.protocol.value}")
-        
-        # Send ACCEPT with session ID
-        accept = RDTPacket(
-            packet_type=PacketType.ACCEPT,
-            session_id=self.session_id
-        )
-        
-        try:
-            self.sock.sendto(accept.to_bytes(), client_addr)
-            self.logger.debug(f"Sent ACCEPT with session ID: {self.session_id}")
-
-            # STEP 3: Wait for final ACK from client
-            self.sock.settimeout(HANDSHAKE_TIMEOUT)
-            
-            for attempt in range(MAX_RETRIES):
-                try:
-                    ack_data, ack_addr = self.sock.recvfrom(ACK_BUFFER_SIZE)
-                    
-                    if ack_addr != client_addr:
-                        self.logger.warning(f"Received ACK from unexpected address: {ack_addr}")
-                        continue
-                    
-                    ack_packet = RDTPacket.from_bytes(ack_data)
-                    
-                    if (ack_packet.packet_type == PacketType.ACK and 
-                        ack_packet.session_id == self.session_id and
-                        ack_packet.verify_checksum()):
-                        
-                        self.logger.info(f"[3-way HS] Step 3: Received ACK - Handshake complete")
-                        return True
-                    else:
-                        self.logger.debug(f"Invalid ACK packet, waiting...")
-                        
-                except socket.timeout:
-                    # Resend ACCEPT if no ACK received
-                    self.sock.sendto(accept.to_bytes(), client_addr)
-                    self.logger.debug(f"[3-way HS] Resending ACCEPT (no ACK received)")
-            
-            self.logger.error("[3-way HS] Failed to receive final ACK")
-            return False
-
-        except Exception as e:
-            self.logger.error(f"Failed to send ACCEPT: {e}")
-            return False
-    
-    def receive_file(self) -> Tuple[bool, bytes]:
-        """
-        Receive the file after handshake
-        
-        Returns:
-            Tuple[bool, bytes]: (success, file_data)
-        """
-        if not self.session_id:
-            self.logger.error("No active session")
-            return False, b''
-            
-        receiver = create_receiver(self.protocol, self.sock, self.logger)
-        
-        try:
-            # let receiver handle everything (first packet + rest)
-            success, file_data = receiver.receive_file(self.client_addr, self.session_id)
-            
-            if success:
-                # send FIN ACK
-                self._handle_fin()
-            
-            return success, file_data
-            
-        except Exception as e:
-            self.logger.error(f"Error receiving file: {e}")
-            return False, b''
-    
-    def _handle_fin(self):
-        """Handle FIN packet and send FIN ACK"""
-        try:
-            # send FIN ACK
-            # FIN packet received and validated by concrete receiver
-            # here we only have to send FIN ACK
-            fin_ack = RDTPacket(
-                packet_type=PacketType.ACK,
-                session_id=self.session_id
-            )
-            self.sock.sendto(fin_ack.to_bytes(), self.client_addr) # TODO: create send FIN ACK method in concrete receiver
-            self.logger.info(f"Session {self.session_id} closed with FIN/FIN-ACK")
-            
-            # clean up session after successful FIN ACK
-            self.session_id = None
-            self.client_addr = None
-            self.protocol = None
-            self.filename = None
-            self.file_size = None
-                
-        except Exception as e:
-            self.logger.error(f"Error handling FIN: {e}")
-    
-    def reject_transfer(self, client_addr: Tuple[str, int], reason: str = "Transfer rejected"):
-        """Send rejection/error response"""
-        error = RDTPacket(
-            packet_type=PacketType.ERROR,
-            data=reason.encode()
-        )
-        try:
-            self.sock.sendto(error.to_bytes(), client_addr)
-        except Exception as e:
-            self.logger.error(f"Failed to send rejection: {e}")
-
-    def send_file(self,source):
-        sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
-        sender.session_id = self.session_id
-        if sender.send_file(source, self.filename):
-            self.logger.info("File uploaded successfully")
-
-        else:
-            self.logger.error("File upload failed")
-
-
-
-class ConcurrentTransferRequest:
-    """
-    Represents an incoming transfer request with concurrent handling
-=======
     Represents an incoming upload transfer request with concurrent handling
->>>>>>> concurrent-download
     Creates dedicated port and thread for each transfer
     Inherits from AbstractRequest to provide polymorphic interface
     """
@@ -325,7 +153,6 @@ class ConcurrentTransferRequest:
                         
                 except socket.timeout:
                     # Resend ACCEPT if no ACK received
-                    self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
                     self.logger.debug(f"[3-way HS] Resending ACCEPT (no ACK received)")
 
             # create thread to handle transfer on dedicated port
@@ -493,16 +320,6 @@ class ConcurrentDownloadRequest(AbstractRequest):
         Returns:
             True if file was sent successfully, False otherwise
         """
-<<<<<<< HEAD
-        if self.session.accept_transfer(self.init_packet, self.client_addr):
-            self._session_id = self.session.session_id  # cache for future use
-            return self.session.receive_file()
-        return None
-        
-    def reject(self, reason: str = "Transfer rejected"):
-        """Reject the transfer request"""
-        self.session.reject_transfer(self.client_addr, reason)
-=======
         storage_dir = self.file_server.storage_dir
         filepath = os.path.join(storage_dir, self.filename)
         if not os.path.exists(filepath):
@@ -517,8 +334,6 @@ class ConcurrentDownloadRequest(AbstractRequest):
             session_id = str(random.randint(1, 255))
             self._session_id = session_id
 
-
-
             # send ACCEPT with dedicated port in payload
             accept_packet = RDTPacket(
                 packet_type=PacketType.ACCEPT,
@@ -526,8 +341,32 @@ class ConcurrentDownloadRequest(AbstractRequest):
                 data=str(dedicated_port).encode('utf-8')  # port in payload
             )
 
-            self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
-            self.logger.info(f"Sent ACCEPT to {self.client_addr} with dedicated port {dedicated_port}")
+            # STEP 3: Wait for final ACK from client
+            self.file_server.sock.settimeout(HANDSHAKE_TIMEOUT)
+            dedicated_sock.settimeout(HANDSHAKE_TIMEOUT)
+            for attempt in range(MAX_RETRIES):
+                try:
+                    self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
+                    self.logger.info(f"Sent ACCEPT to {self.client_addr} with dedicated port {dedicated_port}, attempt {attempt}")
+                    ack_data, ack_addr = dedicated_sock.recvfrom(ACK_BUFFER_SIZE)
+                    
+                    if ack_addr != self.client_addr:
+                        self.logger.warning(f"Received ACK from unexpected address: {ack_addr}")
+                        continue
+                    self.logger.debug(f"Packet received from client")
+                    ack_packet = RDTPacket.from_bytes(ack_data)
+                    
+                    if (ack_packet.packet_type == PacketType.ACK and 
+                        ack_packet.session_id == self._session_id and
+                        ack_packet.verify_checksum()): # PUENTIANDO ANDO
+                        #self.file_server.sock = dedicated_sock
+                        self.logger.info(f"[3-way HS] Step 3: Received {ack_packet.packet_type} - Handshake complete")
+                        break
+                    else:
+                        self.logger.debug(f"Invalid ACK packet, waiting...")
+                        
+                except socket.timeout:
+                    self.logger.debug(f"[3-way HS] Resending ACCEPT (no ACK received)")
 
             transfer_thread = threading.Thread(
                 target=self._handle_dedicated_request,
@@ -553,16 +392,6 @@ class ConcurrentDownloadRequest(AbstractRequest):
             return True  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
         except Exception as e:
             return False
-
-    def get_session_id(self) -> Optional[str]:
-        """
-        Get the session ID after acceptance
-        Useful for future concurrent server implementations
-
-        Returns:
-            Session ID or None if not yet accepted
-        """
-        return self._session_id
 
     def reject(self, reason: str = "Download request rejected"):
         """
@@ -603,7 +432,6 @@ class ConcurrentDownloadRequest(AbstractRequest):
         except Exception:
             return None
 
->>>>>>> concurrent-download
 
 
 class FileServer:
@@ -747,110 +575,6 @@ class GracefulKiller:
         self.logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.kill_now = True
 
-<<<<<<< HEAD
-class DownloadRequest:
-    """
-    Represents an incoming download request
-    Provides simple interface for server to accept/reject and send files
-    
-    Similar to TransferRequest but for download - server acts as sender
-    """
-    
-    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
-        self.sock = sock
-        self.logger = logger
-        self.init_packet = init_packet
-        self.client_addr = client_addr
-        self.session = Session(sock, logger)
-        self._session_id = None  # cache session ID after handshake
-        
-    @property
-    def filename(self) -> str:
-        """The filename requested by the client"""
-        return self.init_packet.filename
-        
-    @property
-    def protocol(self) -> Protocol:
-        """The protocol requested by the client"""
-        return self.init_packet.protocol
-        
-    @property
-    def source_address(self) -> Tuple[str, int]:
-        """The client's address"""
-        return self.client_addr
-        
-    def accept(self, filepath: str) -> bool:
-        """
-        Do the handshake and set up for receiving incoming bytes
-        
-        Args:
-            filepath: Local path to the file to send
-        
-        Returns:
-            True if file was sent successfully, False otherwise
-        """
-        if self.session.accept_transfer(self.init_packet, self.client_addr):
-            self._session_id = self.session.session_id  # cache for future use
-            self.session.send_file(filepath)
-            return True
-        return False
-        
-    def reject(self, reason: str = "Download request rejected"):
-        """
-        Reject the download request
-        
-        Args:
-            reason: Reason for rejection to send to client
-        """
-        try:
-            self.session.reject_download_request(self.client_addr, reason)
-            self.logger.info(f"Rejected download request from {self.client_addr}: {reason}")
-        except Exception as e:
-            self.logger.error(f"Error rejecting download request: {e}")
-    
-    def get_file_info(self, filepath: str) -> Optional[Tuple[str, int]]:
-        """
-        Get file information for the requested file
-        
-        Args:
-            filepath: Path to the file
-            
-        Returns:
-            Tuple of (filename, file_size) or None if file doesn't exist
-        """
-        try:
-            if not self.file_exists(filepath):
-                return None
-            
-            filename = os.path.basename(filepath)
-            file_size = os.path.getsize(filepath)
-            return filename, file_size
-        except Exception as e:
-            self.logger.error(f"Error getting file info for {filepath}: {e}")
-            return None
-
-    @staticmethod
-    def extract_session_id(packet_data: bytes) -> Optional[str]:
-        """
-        Extract session ID from raw packet data without full parsing
-        Useful for future concurrent server implementations to route packets
-        
-        Args:
-            packet_data: Raw packet bytes
-            
-        Returns:
-            Session ID or None if packet doesn't contain one
-        """
-        try:
-            # Quick extraction without full validation
-            # Session ID is at a fixed offset in the packet structure
-            packet = RDTPacket.from_bytes(packet_data)
-            return packet.session_id
-        except Exception:
-            return None
-
-=======
->>>>>>> concurrent-download
 def setup_logging(verbose, quiet):
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
     
@@ -940,16 +664,8 @@ def main():
             request = file_server.wait_for_transfer()
             
             if request:
-<<<<<<< HEAD
-                
-                # handle different request types:
-                if isinstance(request, DownloadRequest):
-                    logger.info(f"Download request from {request.source_address}: {request.filename}")
-                    # handle download request
-=======
                 # polymorphic handling: all requests use the same .accept() interface
                 logger.info(f"Request from {request.source_address}: {request.filename}")
->>>>>>> concurrent-download
 
                 success = request.accept()
 
