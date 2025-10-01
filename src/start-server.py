@@ -478,20 +478,25 @@ class FileServer:
         if result:
             packet, addr = result
             
-            if packet.file_size == 0:
-                self.logger.debug(f"Received download request from {addr} for '{packet.filename}'")
+            # ccheck request type based on packet type
+            if packet.packet_type == PacketType.DOWNLOAD_INIT:
+                self.logger.debug(f"Received DOWNLOAD_INIT from {addr} for '{packet.filename}'")
                 return ConcurrentDownloadRequest(self, packet, addr)
-
-            self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
             
-            # check if server is at capacity
-            with self.sessions_lock:
-                if len(self.active_sessions) >= self.max_concurrent:
-                    self.logger.warning(f"Server at capacity ({self.max_concurrent} sessions), rejecting client {addr}")
-                    self._send_error(addr, "Server at capacity, try again later")
-                    return None
-            
-            return ConcurrentTransferRequest(self, packet, addr)
+            elif packet.packet_type == PacketType.UPLOAD_INIT:
+                self.logger.debug(f"Received UPLOAD_INIT from {addr}: {packet.filename}")
+                
+                # check if server is at capacity
+                with self.sessions_lock:
+                    if len(self.active_sessions) >= self.max_concurrent:
+                        self.logger.warning(f"Server at capacity ({self.max_concurrent} sessions), rejecting client {addr}")
+                        self._send_error(addr, "Server at capacity, try again later")
+                        return None
+                
+                return ConcurrentTransferRequest(self, packet, addr)
+            else:
+                self.logger.warning(f"Received unknown packet type {packet.packet_type} from {addr}")
+                return None
         else:
             self.logger.debug("No INIT packet received (timeout or error)")
         return None

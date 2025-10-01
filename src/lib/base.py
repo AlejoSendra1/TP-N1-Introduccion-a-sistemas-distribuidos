@@ -64,17 +64,15 @@ class PacketType(Enum):
     ACK = 2
     
     # Handshake
-    INIT = 3        # Initialize transfer
-    ACCEPT = 4      # Accept transfer
-    ACCEPT_ACK = 9  # Acknowledge ACCEPT (complete handshake)
+    UPLOAD_INIT = 3     # Initialize upload session
+    DOWNLOAD_INIT = 4   # Initialize download session
+    ACCEPT = 5          # Accept transfer
+    ACCEPT_ACK = 6      # Acknowledge ACCEPT (complete handshake)
     
     # Control
-    FIN = 5       # Finish transfer
+    FIN = 7       # Finish transfer
     FIN_ACK = 8   # Acknowledge FIN
-    ERROR = 6     # Error message
-    
-    # Legacy (for download - to be implemented)
-    REQUEST = 7   # Download request
+    ERROR = 9     # Error message
     
     def __str__(self):
         """Human-readable string representation for logging"""
@@ -269,7 +267,7 @@ class RDTPacket:
 
 def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -> Optional[Tuple[RDTPacket, Tuple[str, int]]]:
     """
-    Wait for and receive an INIT packet from any client
+    Wait for and receive an INIT packet (UPLOAD_INIT or DOWNLOAD_INIT) from any client
     
     Args:
         sock: Socket to listen on
@@ -281,10 +279,11 @@ def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -
     sock.settimeout(None) # timeout ccleanup
     
     try:
-        data, addr = sock.recvfrom(INIT_PACKET_SIZE)  # INIT packets are small; TODO: maybe use a smaller buffer size for INIT packets (because file name cannot be that large)
+        data, addr = sock.recvfrom(INIT_PACKET_SIZE)  # INIT packets are small
         packet = RDTPacket.from_bytes(data) 
         
-        if packet.packet_type == PacketType.INIT:
+        # accept both UPLOAD_INIT and DOWNLOAD_INIT
+        if packet.packet_type in (PacketType.UPLOAD_INIT, PacketType.DOWNLOAD_INIT):
             return packet, addr
         else:
             return None  # Not an INIT packet
@@ -375,11 +374,10 @@ class AbstractSender(ABC):
         self.socket = None
 
     def perform_handshake(self, filename: str, file_size: int, protocol: Protocol) -> bool:
-        """Perform handshake with server"""
         """Perform handshake with server and handle dedicated port"""
-        # Create INIT packet
+        # create UPLOAD_INIT packet
         init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
+            packet_type=PacketType.UPLOAD_INIT,
             filename=filename,
             file_size=file_size,
             protocol=protocol
