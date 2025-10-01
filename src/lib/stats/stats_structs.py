@@ -11,6 +11,8 @@ class Stats:
         self.end_time = None
         self.final_status = None  # "success" or "failure"
         self.handshake_attempts = 0
+        self.file_size = 0
+        self.packets = 0
 
         # For Selective Repeat
         self.window_size = 0  
@@ -33,8 +35,6 @@ class Stats:
 class SenderStats(Stats):
     def __init__(self, process, protocol):
         super().__init__(process, protocol)
-        self.file_size = 0
-        self.packets = 0
         self.send_times = {} # seq_num -> send_time
         self.bytes_sent = 0
         self.packets_sent = 0
@@ -81,7 +81,6 @@ class ReceiverStats(Stats):
         self.bytes_received = 0
         self.packets_received = 0
         self.duplicate_packets = 0
-        self.file_size = 0
 
     def recv(self, bytes_len):
         self.bytes_received += bytes_len
@@ -98,4 +97,5 @@ class ReceiverStats(Stats):
         with open(filename, 'a') as f:
             total_time = self.end_time - self.start_time if self.start_time and self.end_time else 0
             connection_time = self.connection_time - self.start_time if self.start_time and self.connection_time else 0
-            f.write(f"{self.process},{self.protocol},{self.final_status},{self.file_size},{self.packets},{total_time:.2f},{connection_time:.2f},{self.handshake_attempts},{self.bytes_received},{self.packets_received},{self.throughput():.4f},{self.window_utilization},{self.duplicate_packets}\n")
+            avg_util = sum(self.window_utilization)/len(self.window_utilization) if self.window_utilization else 0
+            f.write(f"{self.process},{self.protocol},{self.final_status},{self.file_size},{self.packets},{total_time:.2f},{connection_time:.2f},{self.handshake_attempts},{self.bytes_received},{self.packets_received},{self.throughput():.4f},{avg_util:.4f},{self.duplicate_packets}\n")

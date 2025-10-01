@@ -214,8 +214,10 @@ class ConcurrentTransferRequest(AbstractRequest):
                 
                 self._save_file(file_data)
                 self.logger.info(f"File transfer completed for session {session_id}")
+                receiver.stats.finish()
             else:
                 self.logger.error(f"File transfer failed for session {session_id}")
+                receiver.stats.finish(status="failure")
                 
         except Exception as e:
             self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
@@ -307,8 +309,10 @@ class ConcurrentDownloadRequest(AbstractRequest):
 
             if success:
                 self.logger.info(f"File download completed for session {session_id}")
+                sender.stats.finish()
             else:
                 self.logger.error(f"File download failed for session {session_id}")
+                sender.stats.finish(status="failure")
 
         except Exception as e:
             self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
