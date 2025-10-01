@@ -115,8 +115,8 @@ class ConcurrentTransferRequest(AbstractRequest):
             dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
             self._dedicated_port = dedicated_port
             
-            # generate session ID
-            session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))
+            # generate unique session ID
+            session_id = self.file_server._generate_unique_session_id()
             self._session_id = session_id
             
             # send ACCEPT with dedicated port in payload
@@ -330,8 +330,8 @@ class ConcurrentDownloadRequest(AbstractRequest):
             dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
             self._dedicated_port = dedicated_port
 
-            # generate session ID
-            session_id = str(random.randint(1, 255))
+            # generate unique session ID
+            session_id = self.file_server._generate_unique_session_id()
             self._session_id = session_id
 
             # send ACCEPT with dedicated port in payload
@@ -499,6 +499,25 @@ class FileServer:
             self.sock.sendto(error_packet.to_bytes(), addr)
         except Exception as e:
             self.logger.error(f"Failed to send error to {addr}: {e}")
+    
+    def _generate_unique_session_id(self) -> str:
+        """Generate a unique session ID that's not currently in use"""
+        with self.sessions_lock:
+            # try up to 100 times to generate a unique ID
+            for _ in range(100):
+                # random session ID (1-255)
+                session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))
+                if session_id not in self.active_sessions:
+                    return session_id
+            
+            # fallback: find first available ID
+            for i in range(1, SEQ_NUM_MODULO):
+                session_id = str(i)
+                if session_id not in self.active_sessions:
+                    return session_id
+            
+            # all IDs exhausted (shouldn't happen with proper cleanup)
+            raise RuntimeError("No available session IDs")
     
     def _create_dedicated_socket(self) -> Tuple[socket.socket, int]:
         """Create a dedicated socket with dynamic port assignment"""
