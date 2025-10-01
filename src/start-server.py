@@ -638,7 +638,12 @@ def setup_logging(verbose, quiet):
         level = logging.WARNING
     else:
         level = logging.INFO
-    
+
+    # create logs directory if it does not exist
+    log_dir = 'logs'
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
     logging.basicConfig(
         level=level,
         format=log_format,
