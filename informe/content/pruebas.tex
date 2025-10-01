@@ -1,6 +1,22 @@
 \section{Pruebas}
 \subsection{Métricas de rendimiento}
-\subsection{Escenarios de prueba}
+Para evaluar el rendimiento de la implementación y poder comparar ambos protocolos, se han utilizado las siguientes métricas:
+\begin{itemize}
+    \item \textbf{RTT promedio:} Tiempo entre el envío de un paquete y la recepción de su acuse de recibo.
+    \item \textbf{Jitter:} Desviación estándar del RTT.
+    \item \textbf{Throughput:} Cantidad de bytes recibidos sobre el tiempo transcurrido.
+    \item \textbf{Overhead:} Cantidad de retransmisiones sobre la cantidad de paquetes enviados.
+    \item \textbf{Uso promedio de las ventanas de envío y recepción:} Promedio de tamaño de las ventanas de envío y recepción utilizadas durante la transmisión.
+\end{itemize}
 \subsection{Herramientas utilizadas}
-\subsection{Configuración del entorno de pruebas}
+Se utilizó la herramienta \textit{mininet} para simular una LAN simple con tres hosts conectados a través de un switch central. El primer host simula un cliente con una red problemática (10\% de pérdida de paquetes). Los dos primeros hosts están limitados a un ancho de banda de 10 Mbps y a una cola de hasta 1000 paquetes, mientras que el tercer host simula un servidor con una red estable y sin limitaciones de ancho de banda.
+
+Para el cálculo de las métricas mencionadas en la sección anterior, se empleó una estructura de datos que permite almacenar la información necesaria para cada una de ellas. Esta estructura se encuentra en el archivo \texttt{lib/stats/stats\_structs.py} y fue utilizada tanto por el servidor como por los clientes.
+
+\subsection{Escenarios de prueba}
+Para evaluar el rendimiento de los protocolos implementados, se generó un conjunto de archivos de prueba con tamaños entre 1 KB y 10 MB. Cada archivo fue transferido utilizando ambos protocolos (Stop \& Wait y Selective Repeat) en distintas condiciones de red simuladas por \textit{mininet}.
+
+Cada prueba se repitió cinco veces por archivo, protocolo y condición de red, y se registraron las métricas descritas previamente. Además, las pruebas se llevaron a cabo tanto de forma secuencial como concurrente. En este último caso, se enviaron múltiples archivos de manera simultánea desde diferentes clientes.
+
+
 \subsection{Resultados obtenidos}
