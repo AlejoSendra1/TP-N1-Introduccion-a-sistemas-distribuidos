@@ -131,9 +131,12 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
     socket_obj.settimeout(original_timeout)
     return None
 
-def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
+def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger, data_queue: queue.Queue) -> Tuple[bool, bytes]:
     """
     Receive file data from server after successful handshake
+    
+    Args:
+        data_queue: Queue to store received data chunks
     
     Returns:
         Tuple[bool, bytes]: (success, file_data)
@@ -144,7 +147,7 @@ def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logge
     try:
         
         # let receiver handle everything (first packet + rest)
-        success, file_data = receiver.receive_file(server_addr, session_id, bytes_received)
+        success, file_data = receiver.receive_file(server_addr, session_id, data_queue)
         
         return success, file_data
             
@@ -190,7 +193,7 @@ def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
         logger.error(f"Error handling FIN: {e}")
     
 
-def write_to_file(bytes_queue: queue.Queue, dst_path: str, logger):
+def write_to_file(data_queue: queue.Queue, dst_path: str, logger):
     """Thread function to write bytes from queue to file"""
     # Use the dst_path directly instead of reconstructing it
     filepath = dst_path
@@ -205,11 +208,11 @@ def write_to_file(bytes_queue: queue.Queue, dst_path: str, logger):
         logger.debug(f"Writing to file: {filepath}")
         with open(filepath, 'wb') as f:
             while True:
-                byte_chunk = bytes_queue.get()
+                byte_chunk = data_queue.get()
                 if byte_chunk is None:  # Sentinel value to stop the thread
                     break
                 f.write(byte_chunk)  # Now byte_chunk is already bytes, not individual bytes
-                bytes_queue.task_done()
+                data_queue.task_done()
         logger.debug(f"File writing thread finished for {dst_path}")
     except Exception as e:
         logger.error(f"Error writing to file {dst_path}: {e}")
@@ -256,11 +259,11 @@ def main():
             logger.error("Failed to initiate download")
             sys.exit(1)
         
-        bytes_received = queue.Queue()  # Queue to hold received bytes
+        data_queue = queue.Queue()  # Queue to hold received data chunks
         # Step 2: Receive file data
-        thread_writer = threading.Thread(target=write_to_file, args=(bytes_received, args.dst, logger))
+        thread_writer = threading.Thread(target=write_to_file, args=(data_queue, args.dst, logger))
         thread_writer.start()
-        success, file_data = receive_downloaded_file(clientSocket, server_addr, session_id, protocol, logger, bytes_received)
+        success, file_data = receive_downloaded_file(clientSocket, server_addr, session_id, protocol, logger, data_queue)
 
         if not success:
             logger.error("Failed to download file")

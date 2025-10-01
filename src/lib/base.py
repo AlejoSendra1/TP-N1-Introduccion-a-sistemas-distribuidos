@@ -19,6 +19,9 @@ MAX_RETRIES = 20
 WINDOW_SIZE = 20  # smaller window for better reliability with packet loss
 MAX_WINDOW_SIZE = 128 # maximum window size for 8-bit sequence numbers
 
+# sequence number space (8-bit sequence numbers: 0-255)
+SEQ_NUM_MODULO = 256  # modulo for sequence number wrap-around
+
 # stop & wait specific optimizations
 SW_PACKET_SIZE = 4096  # 8KB packets for stop & wait (fewer packets = faster)
 SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
@@ -122,11 +125,11 @@ class RDTPacket:
                  data: bytes = b'', filename: str = None, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
-        self.seq_num = seq_num % 256  # sequence number (0-255)
+        self.seq_num = seq_num % SEQ_NUM_MODULO  # sequence number (0-255)
         self.packet_type = packet_type
         self.data = data
         self.filename = filename
-        self.ack_num = ack_num % 256  # acknowledgment number (0-255)
+        self.ack_num = ack_num % SEQ_NUM_MODULO  # acknowledgment number (0-255)
         self.protocol = protocol  # protocol for INIT packet
         self.session_id = session_id  # session identifier
         self.file_size = file_size  # file size for INIT packet
@@ -154,7 +157,7 @@ class RDTPacket:
         if self.session_id:
             checksum += sum(self.session_id.encode('utf-8'))
         
-        self.checksum = checksum % 256
+        self.checksum = checksum % SEQ_NUM_MODULO
     
     def verify_checksum(self) -> bool:
         """Verify packet integrity"""
@@ -188,9 +191,9 @@ class RDTPacket:
         # fixed binary header: 14 bytes
         header_bytes = struct.pack(
             '!BBBIIBBB',
-            self.seq_num % 256,             # B (1 bytes)
-            self.checksum % 256,            # B (1 bytes)
-            self.ack_num % 256,             # B (1 bytes)
+            self.seq_num % SEQ_NUM_MODULO,             # B (1 bytes)
+            self.checksum % SEQ_NUM_MODULO,            # B (1 bytes)
+            self.ack_num % SEQ_NUM_MODULO,             # B (1 bytes)
             len(payload),                   # I (4 bytes) - payload length
             self.file_size,                 # I (4 bytes)
             self.packet_type.value,         # B (1 byte)
@@ -245,18 +248,18 @@ class RDTPacket:
             packet_data = payload
         
         packet = cls(
-            seq_num=seq_num % 256,
+            seq_num=seq_num % SEQ_NUM_MODULO,
             packet_type=packet_type,
             data=packet_data,
             filename=filename,
-            ack_num=ack_num % 256,
+            ack_num=ack_num % SEQ_NUM_MODULO,
             protocol=protocol,
             session_id=session_id,
             file_size=file_size
         )
         
         # Set checksum (no recalculate)
-        packet.checksum = checksum % 256
+        packet.checksum = checksum % SEQ_NUM_MODULO
          
         return packet
 
@@ -349,7 +352,7 @@ class AbstractSender(ABC):
                     break
                 
                 packet = RDTPacket(
-                    seq_num=chunk_index % 256,  # wrap around at 256
+                    seq_num=chunk_index % SEQ_NUM_MODULO,  # wrap around at SEQ_NUM_MODULO
                     packet_type=PacketType.DATA,
                     data=chunk
                 )
@@ -423,7 +426,7 @@ class AbstractReceiver(ABC):
         self.socket = socket
         self.logger = logger
 
-    def receive_file(self, client_addr: Tuple[str, int], session_id: str, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
+    def receive_file(self, client_addr: Tuple[str, int], session_id: str, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive complete file from client
         Handles first packet reception, validation, and delegates to subclass
@@ -431,6 +434,7 @@ class AbstractReceiver(ABC):
         Args:
             client_addr: Expected client address
             session_id: Expected session ID
+            data_queue: Queue to store received data chunks
             
         Returns:
             Tuple[bool, bytes]: (success, file_data)
@@ -455,7 +459,7 @@ class AbstractReceiver(ABC):
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, addr, bytes_received) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr, data_queue) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
@@ -465,7 +469,7 @@ class AbstractReceiver(ABC):
             return False, b''
     
     @abstractmethod
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
 

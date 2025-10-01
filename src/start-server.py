@@ -7,9 +7,49 @@ import random
 import threading
 import queue
 import time
+from abc import ABC, abstractmethod
 from typing import Tuple, Optional, Dict
-from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
+from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet, SEQ_NUM_MODULO
 from lib.factory import create_sender
+
+class AbstractRequest(ABC):
+    """
+    Abstract base class for all transfer requests
+    Defines the polymorphic interface that all request types must implement
+    """
+    
+    @abstractmethod
+    def accept(self) -> bool:
+        """
+        Accept and handle the request
+        
+        Returns:
+            bool: True if request was handled successfully, False otherwise
+        """
+        pass
+    
+    @property
+    @abstractmethod
+    def filename(self) -> str:
+        """The filename associated with this request"""
+        pass
+    
+    @property
+    @abstractmethod
+    def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
+        pass
+    
+    @abstractmethod
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+        
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        pass
+
 
 class SessionInfo:
     """Information about an active concurrent session"""
@@ -57,7 +97,7 @@ class Session:
         self.filename = init_packet.filename
         self.file_size = init_packet.file_size
         # generate session ID as single byte (1-255, 0 reserved for INIT)
-        self.session_id = str(random.randint(1, 255)) # TODO: use a better session ID generation method, to avoid collisions
+        self.session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))  # TODO: use a better session ID generation method, to avoid collisions
         
         self.logger.info(f"Accepting transfer for {self.filename} using {self.protocol.value}")
         
@@ -75,9 +115,12 @@ class Session:
             self.logger.error(f"Failed to send ACCEPT for session {self.session_id}: {e}")
             return False
 
-    def receive_file(self, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
+    def receive_file(self, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive the file after handshake
+        
+        Args:
+            data_queue: Queue to store received data chunks
         
         Returns:
             Tuple[bool, bytes]: (success, file_data)
@@ -90,7 +133,7 @@ class Session:
         
         try:
             # let receiver handle everything (first packet + rest)
-            success, file_data = receiver.receive_file(self.client_addr, self.session_id, bytes_received)
+            success, file_data = receiver.receive_file(self.client_addr, self.session_id, data_queue)
             
             if success:
                 # send FIN ACK
@@ -147,10 +190,11 @@ class Session:
 
 
 
-class ConcurrentTransferRequest:
+class ConcurrentTransferRequest(AbstractRequest):
     """
-    Represents an incoming transfer request with concurrent handling
+    Represents an incoming upload transfer request with concurrent handling
     Creates dedicated port and thread for each transfer
+    Inherits from AbstractRequest to provide polymorphic interface
     """
     
     def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
@@ -177,20 +221,37 @@ class ConcurrentTransferRequest:
     def source_address(self) -> Tuple[str, int]:
         return self.client_addr
 
-    def accept(self, bytes_received: queue.Queue) -> Optional[Tuple[bool, bytes]]:
+    def accept(self) -> bool:
         """
         Accept the transfer with dedicated port and thread
+        Handles queue and writer thread creation internally
         
         Returns:
-            Tuple[bool, bytes] or None if handshake fails
+            bool: True if transfer started successfully, False otherwise
         """
         try:
+            # create data queue for thread communication
+            data_queue = queue.Queue()
+            
+            # construct filepath for saving the file
+            storage_dir = self.file_server.storage_dir
+            filepath = os.path.join(storage_dir, self.filename)
+            
+            # create writer thread to save data to disk
+            writer_thread = threading.Thread(
+                target=write_file,
+                args=(data_queue, filepath),
+                daemon=True
+            )
+            writer_thread.start()
+            self.logger.debug(f"Started writer thread for {filepath}")
+            
             # create dedicated socket and port
             dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
             self._dedicated_port = dedicated_port
             
             # generate session ID
-            session_id = str(random.randint(1, 255))
+            session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))
             self._session_id = session_id
             
             # send ACCEPT with dedicated port in payload
@@ -206,7 +267,7 @@ class ConcurrentTransferRequest:
             # create thread to handle transfer on dedicated port
             transfer_thread = threading.Thread(
                 target=self._handle_dedicated_transfer,
-                args=(dedicated_sock, session_id, bytes_received),
+                args=(dedicated_sock, session_id, data_queue),
                 daemon=True
             )
             
@@ -225,13 +286,13 @@ class ConcurrentTransferRequest:
             # start transfer thread
             transfer_thread.start()
             
-            return True, b''  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
+            return True
             
         except Exception as e:
             self.logger.error(f"Failed to accept transfer: {e}")
-            return None
+            return False
     
-    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str, bytes_received: queue.Queue):
+    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str, data_queue: queue.Queue):
         """Handle the actual transfer on dedicated port (runs in separate thread)"""
         try:
             self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
@@ -246,7 +307,7 @@ class ConcurrentTransferRequest:
             receiver = create_receiver(self.protocol, dedicated_sock, self.logger)
             
             # the client will send DATA packets directly to this dedicated port
-            success, file_data = receiver.receive_file(self.client_addr, session_id, bytes_received)
+            success, file_data = receiver.receive_file(self.client_addr, session_id, data_queue)
             
             if success:
                 # send FIN ACK to complete the transfer
@@ -303,62 +364,7 @@ class ConcurrentTransferRequest:
             self.logger.error(f"Failed to send rejection: {e}")
 
 
-class TransferRequest:
-    """
-    Legacy TransferRequest class for backward compatibility
-    Represents an incoming transfer request
-    Provides simple interface for server to accept/reject
-    """
-    
-    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
-        self.sock = sock
-        self.logger = logger
-        self.init_packet = init_packet
-        self.client_addr = client_addr
-        self.session = Session(sock, logger)
-        self._session_id = None  # cache session ID after handshake
-        
-    @property
-    def filename(self) -> str:
-        return self.init_packet.filename
-        
-    @property
-    def file_size(self) -> int:
-        return self.init_packet.file_size
-        
-    @property
-    def protocol(self) -> Protocol:
-        return self.init_packet.protocol
-        
-    @property
-    def source_address(self) -> Tuple[str, int]:
-        return self.client_addr
 
-    def accept(self, bytes_received: queue.Queue) -> Optional[Tuple[bool, bytes]]:
-        """
-        Accept the transfer and receive the file
-        
-        Returns:
-            Tuple[bool, bytes] or None if handshake fails
-        """
-        if self.session.accept_transfer(self.init_packet, self.client_addr):
-            self._session_id = self.session.session_id  # cache for future use
-            return self.session.receive_file(bytes_received)
-        return None
-    
-    def get_session_id(self) -> Optional[str]:
-        """
-        Get the session ID after acceptance
-        Useful for future concurrent server implementations
-        
-        Returns:
-            Session ID or None if not yet accepted
-        """
-        return self._session_id
-        
-    def reject(self, reason: str = "Transfer rejected"):
-        """Reject the transfer request"""
-        self.session.reject_transfer(self.client_addr, reason)
 
 
 class FileServer:
@@ -398,7 +404,7 @@ class FileServer:
             packet, addr = result
             
             if packet.file_size == 0:
-                return DownloadRequest(self.sock, self.logger, packet, addr)
+                return DownloadRequest(self.sock, self.logger, packet, addr, self)
             
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
             
@@ -500,34 +506,23 @@ class GracefulKiller:
         self.logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.kill_now = True
 
-class DownloadRequest:
+class DownloadRequest(AbstractRequest):
     """
     Represents an incoming download request
     Provides simple interface for server to accept/reject and send files
+    Inherits from AbstractRequest to provide polymorphic interface
     
-    Similar to TransferRequest but for download - server acts as sender
-
-        TODO: DOWNLOAD IMPLEMENTATION
-    create similar DownloadRequest class:
-    class DownloadRequest:
-        def __init__(self, sock, logger, init_packet, client_addr):
-            # Similar to TransferRequest but for download
-        
-        def accept(self, filepath: str) -> bool:
-            # 1) perform handshake (INIT -> ACCEPT)
-            # 2) create sender using factory.create_sender()
-            # 3) send file using sender.send_file(filepath, filename)
-            # 4) handle FIN/FIN-ACK
-            # 5) return success/failure
+    Server acts as sender in this case
     """
     
-    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
+    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int], file_server: 'FileServer' = None):
         self.sock = sock
         self.logger = logger
         self.init_packet = init_packet
         self.client_addr = client_addr
         self.session = Session(sock, logger)
         self._session_id = None  # cache session ID after handshake
+        self.file_server = file_server  # needed for accessing storage_dir
         
     @property
     def filename(self) -> str:
@@ -544,16 +539,25 @@ class DownloadRequest:
         """The client's address"""
         return self.client_addr
 
-    def accept(self, filepath: str, _bytes_received: queue.Queue) -> bool:
+    def accept(self) -> bool:
         """
-        Do the handshake and set up for receiving incoming bytes
-        
-        Args:
-            filepath: Local path to the file to send
+        Accept the download request and send the file
+        Constructs filepath internally and validates file existence
         
         Returns:
-            True if file was sent successfully, False otherwise
+            bool: True if file was sent successfully, False otherwise
         """
+        # construct filepath from storage directory and requested filename
+        storage_dir = self.file_server.storage_dir
+        filepath = os.path.join(storage_dir, self.filename)
+        
+        # validate file exists before accepting
+        if not os.path.exists(filepath):
+            self.logger.error(f"File not found: {filepath}")
+            self.reject("File not found")
+            return False
+        
+        # perform handshake and send file
         if self.session.accept_transfer(self.init_packet, self.client_addr):
             self._session_id = self.session.session_id  # cache for future use
             self.session.send_file(filepath)
@@ -707,47 +711,17 @@ def main():
         while not killer.kill_now:
             # wait for transfer request
             request = file_server.wait_for_transfer()
-            bytes_received = queue.Queue()
+            
             if request:
+                # polymorphic handling: all requests use the same .accept() interface
+                logger.info(f"Request from {request.source_address}: {request.filename}")
                 
-                # INPROGRESS: DOWNLOAD IMPLEMENTATION
-                # handle different request types:
-                if isinstance(request, DownloadRequest):
-                    logger.info(f"Download request from {request.source_address}: {request.filename}")
-                    # handle download request
-
-                    filepath = os.path.join(args.storage, request.filename)
-                    if os.path.exists(filepath):
-                        success = request.accept(filepath, bytes_received)  # send file to client
-                        if success:
-                            logger.info(f"Connection setuped succesfully")
-                        else:
-                            logger.error("Connection error")
-
-                        
-                    else:
-                        logger.error(f"File not found: {filepath}")
-                        request.reject("File not found")
-                elif isinstance(request, ConcurrentTransferRequest):
-                    logger.info(f"Transfer request from {request.source_address}: {request.filename}")
+                success = request.accept()
                 
-                    # CURRENT LOGIC (UPLOAD ONLY):
-                    # simple policy: accept all transfers
-
-                    filepath = os.path.join(args.storage, request.filename)
-                    
-                    thread_writer = threading.Thread(target=write_file, args=(bytes_received, f"{filepath}"))
-                    thread_writer.start()
-
-                    result = request.accept(bytes_received)     
-                    if result:
-                        success, _ = result
-                        if success:
-                            logger.info(f"Transfer accepted and started in background thread")
-                        else:
-                            logger.error("Transfer failed to start")
-                    else:
-                        logger.error("Handshake failed")
+                if success:
+                    logger.info(f"Request handled successfully")
+                else:
+                    logger.error("Request failed")
     
     except KeyboardInterrupt as e:
         logger.info("Keyboard interrupt received")

@@ -37,7 +37,8 @@ from .base import (
     MAX_RETRIES,
     WINDOW_SIZE,
     DATA_BUFFER_SIZE,
-    SW_DATA_BUFFER_SIZE
+    SW_DATA_BUFFER_SIZE,
+    SEQ_NUM_MODULO
 )
 
 # Concrete implementations (for advanced usage)
@@ -68,6 +69,7 @@ __all__ = [
     'WINDOW_SIZE',
     'DATA_BUFFER_SIZE',
     'SW_DATA_BUFFER_SIZE',
+    'SEQ_NUM_MODULO',
     
     # Concrete implementations
     'RDTSender',

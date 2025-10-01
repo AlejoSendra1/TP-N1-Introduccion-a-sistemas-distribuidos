@@ -10,7 +10,7 @@ from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
     TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
-    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
+    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested, SEQ_NUM_MODULO
 )
 
 
@@ -54,7 +54,7 @@ class SelectiveRepeatSender(AbstractSender):
                    self.nextseqnum < self.send_base + self.window_size):
                 
                 packet = packets[self.nextseqnum]
-                packet.seq_num = self.nextseqnum % 256  # ensure seq_num wraps around at 256
+                packet.seq_num = self.nextseqnum % SEQ_NUM_MODULO  # ensure seq_num wraps around
                 
                 # add session ID to all packets
                 if self.session_id:
@@ -140,7 +140,7 @@ class SelectiveRepeatSender(AbstractSender):
             ack_packet = RDTPacket.from_bytes(ack_data)
             acked_packet_num = None
             for packet_num in list(self.send_window.keys()):
-                if (packet_num % 256) == ack_packet.ack_num:
+                if (packet_num % SEQ_NUM_MODULO) == ack_packet.ack_num:
                     acked_packet_num = packet_num
                     break
 
@@ -297,7 +297,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
 
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
@@ -305,7 +305,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         client_host = addr[0]
         
         # process first packet  
-        complete = self._process_packet(first_packet, addr, bytes_received)
+        complete = self._process_packet(first_packet, addr, data_queue)
         if complete:
             # file is complete, but continue receiving until FIN
             self.logger.info(f"File transfer complete, waiting for FIN")
@@ -316,7 +316,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
                 # Signal end of transmission to the writer thread
-                bytes_received.put(None)
+                data_queue.put(None)
                 return False, b''
             
             try:
@@ -333,14 +333,14 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                     self.logger.info("Received FIN packet, sending FIN-ACK")
                     if self._handle_fin(packet, packet_addr):
                         # Signal end of transmission to the writer thread
-                        bytes_received.put(None)
+                        data_queue.put(None)
                         return True, self.received_data
                     # Signal end of transmission even on error
-                    bytes_received.put(None)
+                    data_queue.put(None)
                     return False, b''
                 
                 # process regular DATA packet
-                complete = self._process_packet(packet, packet_addr, bytes_received)
+                complete = self._process_packet(packet, packet_addr, data_queue)
                 
                 # don't return here - continue until FIN
                     
@@ -349,12 +349,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
                 # Signal end of transmission to the writer thread
-                bytes_received.put(None)
+                data_queue.put(None)
                 return False, b''
 
-    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> bool:
+    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> bool:
         """Process a received packet and return is_complete"""
-        seq_num = packet.seq_num % 256  # ensure seq_num wraps around at 256    
+        seq_num = packet.seq_num % SEQ_NUM_MODULO  # ensure seq_num wraps around    
         
         # always send ACK (even for duplicates or out-of-order)
         # Include session_id if packet has it
@@ -386,7 +386,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
 
                 # Push data chunk to the queue instead of individual bytes
                 if delivered_packet.data:  # Only put non-empty data
-                    bytes_received.put(delivered_packet.data)
+                    data_queue.put(delivered_packet.data)
 
                 self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 
@@ -395,7 +395,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
 
-                self.rcv_base = (self.rcv_base + 1) % 256 # wrap-around at 256
+                self.rcv_base = (self.rcv_base + 1) % SEQ_NUM_MODULO  # wrap-around
 
             if is_complete:
                 # file is complete, but don't return yet - we're waiting for FIN
@@ -414,7 +414,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
     def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
         """Check if sequence number is within window (handles wrap-around)"""
         # Calculate window end with wrap-around
-        window_end = (base + window_size) % 256
+        window_end = (base + window_size) % SEQ_NUM_MODULO
         
         if base < window_end:
             # Normal case: no wrap-around
