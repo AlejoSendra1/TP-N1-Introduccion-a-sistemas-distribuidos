@@ -7,6 +7,8 @@ import queue
 import socket
 from socket import timeout
 from typing import List, Tuple
+
+from lib.stats.stats_structs import ReceiverStats, SenderStats
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol,
     MAX_RETRIES, ACK_BUFFER_SIZE, SW_DATA_BUFFER_SIZE,
@@ -16,9 +18,9 @@ from .base import (
 
 class RDTSender(AbstractSender):
     """RDT sender implementation with Stop & Wait protocol"""
-    
-    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger):
-        super().__init__(socket, dest_addr, logger)
+
+    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, stats: SenderStats):
+        super().__init__(socket, dest_addr, logger, stats)
         self.seq_num = 0
         self.session_id = None
         self.socket.settimeout(SW_TIMEOUT)
@@ -59,7 +61,8 @@ class RDTSender(AbstractSender):
             packet.seq_num = self.seq_num
             packet.session_id = self.session_id  # add session ID to all packets
             packet.calculate_checksum()  # recalculate after changes
-            
+
+            self.stats.send(packet.seq_num, len(packet.data))
             
             if self._send_packet_reliable(packet):
                 self.logger.debug(f"Packet {self.seq_num} sent successfully")
@@ -146,6 +149,7 @@ class RDTSender(AbstractSender):
                     ack_packet.ack_num == packet.seq_num and 
                     ack_packet.verify_checksum()):
                     self.logger.debug(f"Received ACK for packet {packet.seq_num}")
+                    self.stats.ack(packet.seq_num)
                     return True
                 else:
                     self.logger.debug(f"Invalid ACK for packet {packet.seq_num}, retrying...")
@@ -182,8 +186,8 @@ class RDTSender(AbstractSender):
 class RDTReceiver(AbstractReceiver):
     """RDT receiver implementation with Stop & Wait protocol"""
     
-    def __init__(self, socket: socket.socket, logger):
-        super().__init__(socket, logger)
+    def __init__(self, socket: socket.socket, logger, stats: ReceiverStats):
+        super().__init__(socket, logger, stats)
         self.session_id = None
         self.dest_addr = None
         self.expected_seq = 0
@@ -208,6 +212,7 @@ class RDTReceiver(AbstractReceiver):
         # Put the first packet data in the queue
         if first_packet.data:
             data_queue.put(first_packet.data)
+            self.stats.recv(len(first_packet.data))
         
         # send ACK for first packet (include session_id if present)
         ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=first_packet.seq_num,
@@ -270,6 +275,7 @@ class RDTReceiver(AbstractReceiver):
                     # Put the entire data chunk in the queue instead of individual bytes
                     if packet.data:  # Only put non-empty data
                         data_queue.put(packet.data)
+                        self.stats.recv(len(packet.data))
                     
                     # send ACK (include session_id if present)
                     ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=packet.seq_num,
@@ -284,6 +290,8 @@ class RDTReceiver(AbstractReceiver):
                 else:
                     # duplicate or out-of-order packet
                     self.logger.debug(f"Duplicate packet {packet.seq_num}, expected {self.expected_seq}")
+                    self.stats.duplicate_packets += 1
+                    
                     # send ACK for the received packet (duplicate ACK with session_id if present)
                     ack = RDTPacket(seq_num=0, packet_type=PacketType.ACK, ack_num=packet.seq_num,
                                    session_id=packet.session_id if hasattr(packet, 'session_id') and packet.session_id else '')
@@ -313,7 +321,8 @@ class RDTReceiver(AbstractReceiver):
         self.dest_addr = addr
         original_timeout = self.socket.gettimeout()
         self.socket.settimeout(HANDSHAKE_TIMEOUT)
-        
+        self.stats.start()
+
         for attempt in range(MAX_RETRIES):
             if is_shutdown_requested():
                 self.socket.settimeout(original_timeout)
@@ -323,7 +332,8 @@ class RDTReceiver(AbstractReceiver):
                 # send INIT to main server port
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
-                
+                self.stats.handshake_attempts += 1
+
                 # Wait for ACCEPT
                 accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 accept_packet = RDTPacket.from_bytes(accept_data)
@@ -368,6 +378,7 @@ class RDTReceiver(AbstractReceiver):
 
                                             self.socket.settimeout(original_timeout)
                                             self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                                            self.stats.mark_connection_established()
 
                                             return True
                                         
@@ -382,6 +393,7 @@ class RDTReceiver(AbstractReceiver):
                     else:
                         # no dedicated port - use original behavior
                         self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.stats.mark_connection_established()
                         self.socket.settimeout(original_timeout)
                         return True
                     

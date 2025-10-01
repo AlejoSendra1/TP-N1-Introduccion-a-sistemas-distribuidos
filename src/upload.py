@@ -6,6 +6,7 @@ import signal
 from socket import socket, AF_INET, SOCK_DGRAM
 from lib import create_sender, request_shutdown, Protocol
 from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES, PacketType, RDTPacket
+from lib.stats.stats_structs import SenderStats
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -104,8 +105,9 @@ def main():
     try:
         # create appropriate sender using factory method
         protocol = Protocol.from_string(args.protocol)
-        sender = create_sender(protocol, clientSocket, (args.host, args.port), logger)
-        
+        stats = SenderStats(process="upload", protocol=protocol)
+        sender = create_sender(protocol, clientSocket, (args.host, args.port), logger, stats=stats)
+
         # perform handshake first
         if not sender.perform_handshake(args.name, os.path.getsize(args.src), protocol):
             return False

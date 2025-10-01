@@ -3,6 +3,7 @@ Base classes and utilities for Reliable Data Transfer (RDT) Protocol
 Contains abstract classes, packet definitions, enums, and utility functions
 """
 
+import os
 import queue
 import struct
 import time
@@ -11,6 +12,8 @@ from socket import timeout
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Tuple, Optional, List
+
+from lib.stats.stats_structs import ReceiverStats, SenderStats
 
 # protocol constants
 PACKET_SIZE = 4096  # 4KB packets for better throughput
@@ -292,10 +295,11 @@ def wait_for_init_packet(sock: socket.socket, timeout: Optional[float] = None) -
 class AbstractSender(ABC):
     """Abstract base class for RDT senders"""
     
-    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger):
+    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, stats: SenderStats):
         self.socket = socket
         self.dest_addr = dest_addr
         self.logger = logger
+        self.stats = stats
         self.filename = None  # stored for handshake
     
     def send_file(self, filepath: str, filename: str) -> bool:
@@ -314,6 +318,9 @@ class AbstractSender(ABC):
                 self.logger.warning(f"File {filepath} is empty")
                 return True
             
+            self.stats.file_size = os.path.getsize(filepath)
+            self.stats.packets = len(packets)
+            
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
             
             # send packets using specific protocol
@@ -321,8 +328,10 @@ class AbstractSender(ABC):
             
             if result:
                 self.logger.info("File transfer completed successfully")
+                self.stats.finish()
             else:
                 self.logger.error("File transfer failed")
+                self.stats.finish(status="failure")
             
             return result
             
@@ -379,6 +388,7 @@ class AbstractSender(ABC):
         original_timeout = self.socket.gettimeout()
         self.socket.settimeout(HANDSHAKE_TIMEOUT)
         
+        self.stats.start()
         for attempt in range(MAX_RETRIES):
             if is_shutdown_requested():
                 self.socket.settimeout(original_timeout)
@@ -422,7 +432,7 @@ class AbstractSender(ABC):
 
                                 self.socket.settimeout(original_timeout)
                                 self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-
+                                self.stats.mark_connection_established()
                                 return True
                             else:
                                 self.logger.error("Failed to reconnect to dedicated port")
@@ -432,6 +442,8 @@ class AbstractSender(ABC):
                     else:
                         # no dedicated port - use original behavior
                         self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.stats.mark_connection_established()
+
                         self.socket.settimeout(original_timeout)
                         return True
                     
@@ -455,9 +467,10 @@ class AbstractSender(ABC):
 class AbstractReceiver(ABC):
     """Abstract base class for RDT receivers"""
     
-    def __init__(self, socket: socket.socket, logger):
+    def __init__(self, socket: socket.socket, logger, stats: ReceiverStats):
         self.socket = socket
         self.logger = logger
+        self.stats = stats
 
     def receive_file(self, client_addr: Tuple[str, int], session_id: str, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """

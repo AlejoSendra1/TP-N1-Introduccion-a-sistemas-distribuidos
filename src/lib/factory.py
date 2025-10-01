@@ -11,12 +11,14 @@ The factory is already prepared for download functionality:
 
 import socket
 from typing import Tuple
+
+from lib.stats.stats_structs import ReceiverStats
 from .base import AbstractSender, AbstractReceiver, Protocol
 from .stop_wait import RDTSender, RDTReceiver
 from .selective_repeat import SelectiveRepeatSender, SelectiveRepeatReceiver
 
 
-def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[str, int], logger) -> AbstractSender:
+def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[str, int], logger, stats: ReceiverStats) -> AbstractSender:
     """
     Factory method to create appropriate sender based on protocol
     
@@ -33,12 +35,12 @@ def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[st
         ValueError: If protocol is not supported
     """
     if protocol == Protocol.STOP_WAIT:
-        return RDTSender(socket, dest_addr, logger)
+        return RDTSender(socket, dest_addr, logger, stats)
     elif protocol == Protocol.SELECTIVE_REPEAT:
-        return SelectiveRepeatSender(socket, dest_addr, logger)
+        return SelectiveRepeatSender(socket, dest_addr, logger, stats)
 
 
-def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> AbstractReceiver:
+def create_receiver(protocol: Protocol, socket: socket.socket, logger, stats: ReceiverStats) -> AbstractReceiver:
     """
     Factory method to create appropriate receiver based on protocol
     
@@ -54,9 +56,9 @@ def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> Abstra
         ValueError: If protocol is not supported
     """
     if protocol == Protocol.STOP_WAIT:
-        return RDTReceiver(socket, logger) # TODO: rename to StopWaitReceiver
+        return RDTReceiver(socket, logger, stats) # TODO: rename to StopWaitReceiver
     elif protocol == Protocol.SELECTIVE_REPEAT:
-        return SelectiveRepeatReceiver(socket, logger)
+        return SelectiveRepeatReceiver(socket, logger, stats)
     else:
         raise ValueError(f"Unknown protocol: {protocol}")
 
@@ -67,9 +69,9 @@ def create_stop_wait_sender(socket: socket.socket, dest_addr: Tuple[str, int], l
     return RDTSender(socket, dest_addr, logger)
 
 
-def create_stop_wait_receiver(socket: socket.socket, logger) -> RDTReceiver:
+def create_stop_wait_receiver(socket: socket.socket, logger, stats: ReceiverStats) -> RDTReceiver:
     """Create a Stop & Wait receiver"""
-    return RDTReceiver(socket, logger)
+    return RDTReceiver(socket, logger, stats)
 
 
 def create_selective_repeat_sender(socket: socket.socket, dest_addr: Tuple[str, int], logger) -> SelectiveRepeatSender:

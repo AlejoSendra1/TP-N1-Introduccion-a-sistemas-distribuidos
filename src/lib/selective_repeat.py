@@ -7,6 +7,8 @@ import queue
 import socket
 from socket import timeout
 from typing import List, Tuple, Dict
+
+from lib.stats.stats_structs import ReceiverStats
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
     TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE,
@@ -17,10 +19,10 @@ from .base import (
 class SelectiveRepeatSender(AbstractSender):
     """Selective Repeat sender implementation with sliding window"""
     
-    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, window_size: int = WINDOW_SIZE):
-        super().__init__(socket, dest_addr, logger)
+    def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, stats, window_size: int = WINDOW_SIZE):
+        super().__init__(socket, dest_addr, logger, stats)
         self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
-        
+        self.stats.window_size = self.window_size
         # selective repeat state variables (as per theory)
         self.send_base = 0  # oldest unacknowledged packet
         self.nextseqnum = 0  # next available sequence number
@@ -32,7 +34,7 @@ class SelectiveRepeatSender(AbstractSender):
     def _send_packets(self, packets: List[RDTPacket]) -> bool:
         """Send packets using selective repeat protocol"""
         total_packets = len(packets)
-        
+
         # perform handshake first (INIT pkg)
         if total_packets > 0:
             file_size = sum(len(p.data) for p in packets if p.data)
@@ -65,7 +67,9 @@ class SelectiveRepeatSender(AbstractSender):
                 # send packet
                 self.socket.sendto(packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent packet {self.nextseqnum} (seq_num={packet.seq_num})")
-                
+                self.stats.send(packet.seq_num, len(packet.data))
+                self.stats.window_utilization.append(len(self.send_window) / self.window_size if self.window_size else 0)
+
                 # add to window with timer
                 timer = PacketTimer()
                 self.send_window[self.nextseqnum] = (packet, timer)
@@ -151,6 +155,7 @@ class SelectiveRepeatSender(AbstractSender):
                 # remove acknowledged packet from window
                 del self.send_window[acked_packet_num]
                 self.logger.debug(f"Received ACK for packet {acked_packet_num}")
+                self.stats.ack(ack_packet.ack_num)
 
                 # advance send_base if possible
                 while self.send_base not in self.send_window and self.send_base < self.nextseqnum:
@@ -178,7 +183,8 @@ class SelectiveRepeatSender(AbstractSender):
             # retransmit packet
             self.socket.sendto(packet.to_bytes(), self.dest_addr)
             self.logger.debug(f"Retransmitted packet {seq_num}")
-            
+            self.stats.retransmissions += 1
+
             # reset timer
             timer.reset()
         
@@ -289,10 +295,12 @@ class SelectiveRepeatSender(AbstractSender):
 
 class SelectiveRepeatReceiver(AbstractReceiver):
     """Selective Repeat receiver implementation with buffering"""
-    
-    def __init__(self, socket: socket.socket, logger, window_size: int = WINDOW_SIZE):
-        super().__init__(socket, logger)
+
+    def __init__(self, socket: socket.socket, logger, stats: ReceiverStats, window_size: int = WINDOW_SIZE):
+        super().__init__(socket, logger, stats)
         self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
+        self.stats.window_size = self.window_size
+
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
@@ -382,6 +390,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 self.logger.debug(f"Buffered packet {seq_num}")
             else:
                 self.logger.debug(f"Duplicate packet {seq_num}")
+                self.stats.duplicate_packets += 1
             
             # deliver consecutive packets starting from rcv_base
             filename = ''
@@ -393,6 +402,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 # Push data chunk to the queue instead of individual bytes
                 if delivered_packet.data:  # Only put non-empty data
                     data_queue.put(delivered_packet.data)
+                    self.stats.recv(len(delivered_packet.data))
 
                 self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 
@@ -445,6 +455,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.dest_addr = addr
         original_timeout = self.socket.gettimeout()
         self.socket.settimeout(HANDSHAKE_TIMEOUT)
+        self.stats.start()
         
         for attempt in range(MAX_RETRIES):
             if is_shutdown_requested():
@@ -455,7 +466,8 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 # send INIT to main server port
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
                 self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
-                
+                self.stats.handshake_attempts += 1
+
                 # Wait for ACCEPT
                 accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 accept_packet = RDTPacket.from_bytes(accept_data)
@@ -500,7 +512,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
 
                                             self.socket.settimeout(original_timeout)
                                             self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-
+                                            self.stats.mark_connection_established()
                                             return True
                                         
                                     except timeout as e:
@@ -514,6 +526,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                     else:
                         # no dedicated port - use original behavior
                         self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.stats.mark_connection_established()
                         self.socket.settimeout(original_timeout)
                         return True
                     

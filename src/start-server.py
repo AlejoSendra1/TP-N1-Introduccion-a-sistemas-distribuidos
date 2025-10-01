@@ -12,6 +12,7 @@ from typing import Tuple, Optional, Dict
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet, SEQ_NUM_MODULO
 from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
 from lib.factory import create_sender
+from lib.stats.stats_structs import ReceiverStats, SenderStats
 
 class AbstractRequest(ABC):
     """
@@ -193,9 +194,10 @@ class ConcurrentTransferRequest(AbstractRequest):
             with self.file_server.sessions_lock:
                 if session_id in self.file_server.active_sessions:
                     self.file_server.active_sessions[session_id].connected = True
-            
-            # ccreate receiver for this dedicated transfer
-            receiver = create_receiver(self.protocol, dedicated_sock, self.logger)
+
+            # create receiver for this dedicated transfer
+            stats = ReceiverStats(process="server", protocol=self.protocol)
+            receiver = create_receiver(self.protocol, dedicated_sock, self.logger, stats=stats)
             
             # the client will send DATA packets directly to this dedicated port
             success, file_data = receiver.receive_file(self.client_addr, session_id, data_queue)
@@ -287,8 +289,9 @@ class ConcurrentDownloadRequest(AbstractRequest):
                 if session_id in self.file_server.active_sessions:
                     self.file_server.active_sessions[session_id].connected = True
 
-            # ccreate receiver for this dedicated download
-            sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger)
+            # create receiver for this dedicated download
+            stats = SenderStats(process="server", protocol=self.protocol)
+            sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger, stats=stats)
             sender.session_id = session_id
             self.logger.debug(f"Created sender for session {session_id} for client with address: {self.client_addr}")
 

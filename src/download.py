@@ -9,6 +9,7 @@ from socket import timeout, socket, AF_INET, SOCK_DGRAM
 import threading
 from lib import create_receiver, request_shutdown, Protocol
 from lib.base import RDTPacket, PacketType, DATA_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
+from lib.stats.stats_structs import ReceiverStats
 
 def setup_logging(verbose, quiet):
     # logging format
@@ -258,7 +259,9 @@ def main():
     try:
         protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
-        receiver = create_receiver(protocol, clientSocket, logger)
+
+        stats = ReceiverStats(process="download", protocol=protocol)
+        receiver = create_receiver(protocol, clientSocket, logger, stats=stats)
         logger.debug(f'Receiver created with protocol {protocol}')
 
         # Step 1: Perform download handshake
