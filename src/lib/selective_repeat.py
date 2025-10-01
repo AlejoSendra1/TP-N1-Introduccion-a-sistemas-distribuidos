@@ -184,84 +184,6 @@ class SelectiveRepeatSender(AbstractSender):
         
         return True
     
-    """
-    def _perform_handshake(self, filename: str, file_size: int) -> bool:
-        #Perform handshake with server and handle dedicated port
-        # create INIT packet
-        try:
-            init_packet = RDTPacket(
-                packet_type=PacketType.INIT,
-                filename=filename,
-                file_size=file_size,
-                protocol=Protocol.SELECTIVE_REPEAT,
-                data=b''
-            )
-        except Exception as e:
-            self.logger.error(f"Error creating INIT packet: {e}")
-            self.logger.error(f"filename type: {type(filename)}, value: {filename}")
-            self.logger.error(f"file_size type: {type(file_size)}, value: {file_size}")
-            raise
-        
-        # longer timeout for handshake
-        original_timeout = self.socket.gettimeout()
-        self.socket.settimeout(HANDSHAKE_TIMEOUT)
-        
-        for attempt in range(MAX_RETRIES):
-            if is_shutdown_requested():
-                self.socket.settimeout(original_timeout)
-                return False
-                
-            try:
-                # send INIT to main server port
-                self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
-                
-                # wait for ACCEPT
-                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
-                accept_packet = RDTPacket.from_bytes(accept_data)
-                
-                if (accept_packet.packet_type == PacketType.ACCEPT and 
-                    accept_packet.session_id and 
-                    accept_packet.verify_checksum()):
-                    
-                    self.session_id = accept_packet.session_id
-                    
-                    #extract dedicated port from payload
-                    if accept_packet.data:
-                        try:
-                            dedicated_port = int(accept_packet.data.decode('utf-8'))
-                            self.logger.info(f"Received dedicated port: {dedicated_port}")
-                            
-                            # reconnect to dedicated port
-                            if self._reconnect_to_dedicated_port(dedicated_port):
-                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                                self.socket.settimeout(original_timeout)
-                                return True
-                            else:
-                                self.logger.error("Failed to reconnect to dedicated port")
-                                
-                        except (ValueError, UnicodeDecodeError) as e:
-                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
-                    else:
-                        # case no dedicated port - use original behavior
-                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
-                        self.socket.settimeout(original_timeout)
-                        return True
-                    
-            except timeout as e:
-                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
-            except Exception as e:
-                self.logger.error(f"Error during handshake: {e}")
-                self.socket.settimeout(original_timeout)
-                return False
-                
-        self.logger.error("Failed to establish session after max retries")
-        self.socket.settimeout(original_timeout)
-        return False
-    
-    def perform_handshake(self, filename, file_size):
-        return self._perform_handshake(filename, file_size)"""
-    
     def _reconnect_to_dedicated_port(self, dedicated_port: int) -> bool:
         """Reconnect socket to dedicated port"""
         try:
@@ -433,9 +355,9 @@ class SelectiveRepeatReceiver(AbstractReceiver):
 
     def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
         """Perform handshake with server and handle dedicated port"""
-        # Create INIT packet
+        # create DOWNLOAD_INIT packet
         init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
+            packet_type=PacketType.DOWNLOAD_INIT,
             filename=filename,
             file_size=0,
             protocol=Protocol.SELECTIVE_REPEAT

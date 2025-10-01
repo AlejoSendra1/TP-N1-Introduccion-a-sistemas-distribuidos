@@ -301,11 +301,11 @@ class RDTReceiver(AbstractReceiver):
 
     def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
         """Perform handshake with server and handle dedicated port"""
-        # Create INIT packet
+        # create DOWNLOAD_INIT packet
         init_packet = RDTPacket(
-            packet_type=PacketType.INIT,
+            packet_type=PacketType.DOWNLOAD_INIT,
             filename=filename,
-            file_size= 0,
+            file_size=0,
             protocol=Protocol.STOP_WAIT
         )
         
