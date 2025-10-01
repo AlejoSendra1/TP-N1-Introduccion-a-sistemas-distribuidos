@@ -76,79 +76,6 @@ def signal_handler(signum, frame, logger, socket_obj):
         socket_obj.close()
     sys.exit(0)
 
-def perform_download_handshake(socket_obj, server_addr, filename, protocol, logger):
-    """
-    Perform handshake to request file download
-    
-    Returns:
-        str: session_id if successful, None if failed
-    """
-    # Create download request packet (INIT with file_size=0 indicates download)
-    init_packet = RDTPacket(
-        packet_type=PacketType.INIT,
-        filename=filename,
-        file_size=0,  # 0 indicates download request
-        protocol=protocol
-    )
-    
-    # Set timeout for handshake
-    original_timeout = socket_obj.gettimeout()
-    socket_obj.settimeout(HANDSHAKE_TIMEOUT)
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            # Send download request (INIT)
-            socket_obj.sendto(init_packet.to_bytes(), server_addr)
-            logger.debug(f"Sent download request for '{filename}' (attempt {attempt + 1})")
-            
-            # Wait for server response
-            response_data, addr = socket_obj.recvfrom(DATA_BUFFER_SIZE)
-            
-            if addr != server_addr:
-                logger.warning(f"Unexpected address: {addr} - expected: {server_addr} in session {init_packet.session_id}")
-                continue
-                
-            response_packet = RDTPacket.from_bytes(response_data)
-            
-            if response_packet.packet_type == PacketType.ACCEPT:
-                if response_packet.session_id and response_packet.verify_checksum():
-                    session_id = response_packet.session_id
-                    logger.info(f"Download request accepted, session ID: {session_id}")
-
-                    # STEP 3: Send final ACK to complete handshake
-                    ack_packet = RDTPacket(
-                        packet_type=PacketType.ACK,
-                        session_id=session_id,
-                        ack_num=0  # Acknowledge the ACCEPT
-                    )
-                    
-                    socket_obj.sendto(ack_packet.to_bytes(), server_addr)
-                    logger.info(f"[3-way HS] Step 3: Sent ACK - Handshake complete, session ID: {session_id}")
-                    
-
-                    socket_obj.settimeout(original_timeout)
-                    return session_id
-                else:
-                    logger.error("Invalid ACCEPT packet received")
-                    
-            elif response_packet.packet_type == PacketType.ERROR:
-                error_msg = response_packet.data.decode() if response_packet.data else "Unknown error"
-                logger.error(f"Server rejected download request: {error_msg}")
-                socket_obj.settimeout(original_timeout)
-                return None
-                
-            else:
-                logger.debug(f"Unexpected response type: {response_packet.packet_type}")
-                
-        except timeout:
-            logger.debug(f"Timeout waiting for download response, retrying...")
-        except Exception as e:
-            logger.error(f"Error during download handshake: {e}")
-            break
-    
-    logger.error("Failed to establish download session")
-    socket_obj.settimeout(original_timeout)
-    return None
 
 def receive_downloaded_file(receiver, logger, data_queue: queue.Queue) -> Tuple[bool, bytes]:
     """
@@ -169,37 +96,6 @@ def receive_downloaded_file(receiver, logger, data_queue: queue.Queue) -> Tuple[
     except Exception as e:
         logger.error(f"Error receiving downloaded file: {e}")
         return False, b''
-
-# TODO: esta fn creo que ya la podemos borrar, la dejo mientras por las dudas
-def handle_fin(sock,serv_addr,session_id,logger): # copiado de la sesion
-    
-    logger.debug("Waiting for FIN from server...")
-    try:
-        # wait for FIN packet with timeout
-        sock.settimeout(5.0)
-        data, addr = sock.recvfrom(DATA_BUFFER_SIZE)
-        fin_packet = RDTPacket.from_bytes(data)
-        
-        if (fin_packet.packet_type == PacketType.FIN and 
-            fin_packet.session_id == session_id and
-            addr == serv_addr):
-            
-            # send FIN ACK
-            fin_ack = RDTPacket(
-                packet_type=PacketType.ACK,
-                session_id=session_id
-            )
-            sock.sendto(fin_ack.to_bytes(), addr)
-            logger.info(f"Session {session_id} closed with FIN/FIN-ACK")
-            
-        else:
-            logger.warning(f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{session_id}  received: {fin_packet.packet_type},{fin_packet.session_id},{addr}")
-            
-    except timeout:
-        logger.warning("No FIN received, session may be incomplete")
-    except Exception as e:
-        logger.error(f"Error handling FIN: {e}")
-    
 
 def write_to_file(data_queue: queue.Queue, dst_path: str, logger):
     """Thread function to write bytes from queue to file"""
@@ -265,8 +161,6 @@ def main():
         logger.debug(f'Receiver created with protocol {protocol}')
 
         # Step 1: Perform download handshake
-    #    session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
-
         if not receiver.perform_handshake(args.name, server_addr):
             logger.error("Failed to initiate download")
             sys.exit(1)
@@ -280,8 +174,6 @@ def main():
         if not success:
             logger.error("Failed to download file")
             sys.exit(1)
-
-        # handle_fin(clientSocket,server_addr,session_id,logger)
 
         # Step 3: Wait for thread writer to finish and check for success
         try:

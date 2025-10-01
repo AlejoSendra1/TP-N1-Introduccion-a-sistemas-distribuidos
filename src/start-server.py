@@ -143,18 +143,19 @@ class ConcurrentTransferRequest(AbstractRequest):
                     self.logger.debug(f"Packet received from client")
                     ack_packet = RDTPacket.from_bytes(ack_data)
                     
-                    if ((ack_packet.packet_type == PacketType.ACK and 
+                    # accept both ACCEPT_ACK and DATA as valid handshake completion
+                    # (client may send first DATA packet immediately after ACCEPT_ACK)
+                    if ((ack_packet.packet_type == PacketType.ACCEPT_ACK and 
                         ack_packet.session_id == self._session_id and
-                        ack_packet.verify_checksum()) or ack_packet.packet_type == PacketType.DATA): # PUENTIANDO ANDO
-                        #self.file_server.sock = dedicated_sock
-                        self.logger.info(f"[3-way HS] Step 3: Received {ack_packet.packet_type} - Handshake complete")
+                        ack_packet.verify_checksum()) or ack_packet.packet_type == PacketType.DATA):
+                        self.logger.info(f"Received {ack_packet.packet_type} - Handshake complete")
                         break
                     else:
-                        self.logger.debug(f"Invalid ACK packet, waiting...")
+                        self.logger.debug(f"Invalid ACCEPT_ACK packet, waiting...")
                         
                 except socket.timeout:
-                    # Resend ACCEPT if no ACK received
-                    self.logger.debug(f"[3-way HS] Resending ACCEPT (no ACK received)")
+                    # Resend ACCEPT if no ACCEPT_ACK received
+                    self.logger.debug(f"Resending ACCEPT (no ACCEPT_ACK received)")
 
             # create thread to handle transfer on dedicated port
             transfer_thread = threading.Thread(
@@ -359,17 +360,16 @@ class ConcurrentDownloadRequest(AbstractRequest):
                     self.logger.debug(f"Packet received from client")
                     ack_packet = RDTPacket.from_bytes(ack_data)
                     
-                    if (ack_packet.packet_type == PacketType.ACK and 
+                    if (ack_packet.packet_type == PacketType.ACCEPT_ACK and 
                         ack_packet.session_id == self._session_id and
-                        ack_packet.verify_checksum()): # PUENTIANDO ANDO
-                        #self.file_server.sock = dedicated_sock
-                        self.logger.info(f"[3-way HS] Step 3: Received {ack_packet.packet_type} - Handshake complete")
+                        ack_packet.verify_checksum()):
+                        self.logger.info(f"Received {ack_packet.packet_type} - Handshake complete")
                         break
                     else:
-                        self.logger.debug(f"Invalid ACK packet, waiting...")
+                        self.logger.debug(f"Invalid ACCEPT_ACK packet, waiting...")
                         
                 except socket.timeout:
-                    self.logger.debug(f"[3-way HS] Resending ACCEPT (no ACK received)")
+                    self.logger.debug(f"Resending ACCEPT (no ACCEPT_ACK received)")
 
             transfer_thread = threading.Thread(
                 target=self._handle_dedicated_request,
@@ -475,7 +475,7 @@ class FileServer:
             packet, addr = result
             
             if packet.file_size == 0:
-                self.logger.info('devolviendo download req en wait for transfer') ##sacar
+                self.logger.debug(f"Received download request from {addr} for '{packet.filename}'")
                 return ConcurrentDownloadRequest(self, packet, addr)
 
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
