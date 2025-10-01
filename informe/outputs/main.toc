@@ -1,0 +1,29 @@
+\babel@toc {spanish}{}\relax 
+\contentsline {section}{\numberline {1}Introducción}{2}{section.1}%
+\contentsline {section}{\numberline {2}Hipótesis y suposiciones realizadas}{3}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Marco teórico}{3}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Hipótesis}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Suposiciones}{3}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Implementación}{4}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Arquitectura del sistema}{4}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Realiable Data Transfer}{4}{subsection.3.2}%
+\contentsline {subsubsection}{\numberline {3.2.1}Estructuras compartidas}{4}{subsubsection.3.2.1}%
+\contentsline {paragraph}{Creación de paquetes}{4}{section*.6}%
+\contentsline {paragraph}{Numeración de secuencia}{4}{section*.7}%
+\contentsline {paragraph}{Acknowledgments}{4}{section*.8}%
+\contentsline {paragraph}{Timers y retransmisiones}{4}{section*.9}%
+\contentsline {subsubsection}{\numberline {3.2.2}Stop \& Wait}{4}{subsubsection.3.2.2}%
+\contentsline {subsubsection}{\numberline {3.2.3}Selective Repeat}{4}{subsubsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.3}Concurrencia}{4}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Manejo de errores}{4}{subsection.3.4}%
+\contentsline {subsection}{\numberline {3.5}Interfaces de usuario}{4}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Configuración de parámetros}{4}{subsection.3.6}%
+\contentsline {section}{\numberline {4}Pruebas}{5}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Métricas de rendimiento}{5}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Escenarios de prueba}{5}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Herramientas utilizadas}{5}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Configuración del entorno de pruebas}{5}{subsection.4.4}%
+\contentsline {subsection}{\numberline {4.5}Resultados obtenidos}{5}{subsection.4.5}%
+\contentsline {section}{\numberline {5}Preguntas a responder}{6}{section.5}%
+\contentsline {section}{\numberline {6}Dificultades encontradas}{7}{section.6}%
+\contentsline {section}{\numberline {7}Conclusiones}{8}{section.7}%
