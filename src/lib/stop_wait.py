@@ -344,9 +344,9 @@ class RDTReceiver(AbstractReceiver):
                             if self._reconnect_to_dedicated_port(dedicated_port,addr):
                                 
 
-                                # STEP 3: Send final ACK to complete handshake
+                                # send ACCEPT_ACK to complete handshake
                                 ack_packet = RDTPacket(
-                                    packet_type=PacketType.ACK,
+                                    packet_type=PacketType.ACCEPT_ACK,
                                     session_id=self.session_id,
                                     ack_num=0  # Acknowledge the ACCEPT
                                 )
@@ -357,7 +357,7 @@ class RDTReceiver(AbstractReceiver):
 
                                     try:
                                         self.socket.sendto(ack_packet.to_bytes(), self.dest_addr)
-                                        self.logger.info(f"[3-way HS] Step 3: Sent ACCEPT ACK - Handshake complete, session ID: {self.session_id}, to: {self.dest_addr}")
+                                        self.logger.info(f"Sent ACCEPT ACK - Handshake complete, session ID: {self.session_id}, to: {self.dest_addr}")
 
                                         data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
                                         packet = RDTPacket.from_bytes(data)

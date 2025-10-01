@@ -61,8 +61,9 @@ class PacketType(Enum):
     ACK = 2
     
     # Handshake
-    INIT = 3      # Initialize transfer
-    ACCEPT = 4    # Accept transfer
+    INIT = 3        # Initialize transfer
+    ACCEPT = 4      # Accept transfer
+    ACCEPT_ACK = 9  # Acknowledge ACCEPT (complete handshake)
     
     # Control
     FIN = 5       # Finish transfer
@@ -409,15 +410,15 @@ class AbstractSender(ABC):
                             if self._reconnect_to_dedicated_port(dedicated_port):
                                 
 
-                                # STEP 3: Send final ACK to complete handshake
+                                # send ACCEPT_ACK to complete handshake
                                 ack_packet = RDTPacket(
-                                    packet_type=PacketType.ACK,
+                                    packet_type=PacketType.ACCEPT_ACK,
                                     session_id=self.session_id,
                                     ack_num=0  # Acknowledge the ACCEPT
                                 )
                                 
                                 self.socket.sendto(ack_packet.to_bytes(), self.dest_addr)
-                                self.logger.info(f"[3-way HS] Step 3: Sent ACCEPT ACK - Handshake complete, session ID: {self.session_id}, to: {self.dest_addr}")
+                                self.logger.info(f"Sent ACCEPT_ACK - Handshake complete, session ID: {self.session_id}, to: {self.dest_addr}")
                                 
 
                                 self.socket.settimeout(original_timeout)
