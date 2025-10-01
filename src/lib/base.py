@@ -169,7 +169,7 @@ class RDTPacket:
     def to_bytes(self) -> bytes:
         """Serialize packet to bytes for transmission"""
         # prepare payload according to packet type
-        if self.packet_type == PacketType.INIT:
+        if self.packet_type == PacketType.UPLOAD_INIT or self.packet_type == PacketType.DOWNLOAD_INIT:
             # INIT: payload = filename as bytes
             payload = self.filename.encode('utf-8') if self.filename else b''
         else:
@@ -178,7 +178,7 @@ class RDTPacket:
         
         # prepare session_id as single byte (0-255)
         # for INIT packets, the session_id is 0 (assigned by the server)
-        if self.packet_type == PacketType.INIT:
+        if self.packet_type == PacketType.UPLOAD_INIT or self.packet_type == PacketType.DOWNLOAD_INIT:
             session_id_byte = 0  # empty for INIT
         else:
             # convert session_id string to integer (0-255)
@@ -236,7 +236,7 @@ class RDTPacket:
         payload = data[HEADER_SIZE:HEADER_SIZE + payload_length]
         
         # intepret payload according to packet type
-        if packet_type == PacketType.INIT:
+        if packet_type == PacketType.UPLOAD_INIT or packet_type == PacketType.DOWNLOAD_INIT:
             # INIT: payload = filename
             filename = payload.decode('utf-8') if payload else ''
             packet_data = b''
@@ -509,13 +509,15 @@ class AbstractReceiver(ABC):
         pass
 
     def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+        last_fin_time = time.time()
         self.logger.debug(f"Handling FIN packet for session {fin_packet.session_id}")
         fin_ack = RDTPacket(
             packet_type=PacketType.FIN_ACK,
             session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''
         )
         self.socket.sendto(fin_ack.to_bytes(), addr)
-        for i in range(MAX_RETRIES):
+        retries = 0
+        while retries < MAX_RETRIES:
             try:
                 # wait for duplicated FIN packet with timeout
                 self.socket.settimeout(DUPLICATED_FIN_TIMEOUT)
@@ -528,10 +530,15 @@ class AbstractReceiver(ABC):
                     # send FIN ACK
                     self.socket.sendto(fin_ack.to_bytes(), addr)
                     self.logger.info(f"Session {fin_packet.session_id} resending FIN ACK")
+                    retries += 1
+                    last_fin_time = time.time()
 
                 else:
                     self.logger.warning(
                         f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
+                    if time.time() - last_fin_time > DUPLICATED_FIN_TIMEOUT:
+                        self.logger.debug("No duplicated FIN received before timeout, finishing session")
+                        return True
 
             except timeout:
                 self.logger.debug("No duplicated FIN received before timeout, finishing session")
