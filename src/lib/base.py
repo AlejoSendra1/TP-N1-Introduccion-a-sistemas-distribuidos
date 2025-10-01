@@ -555,6 +555,6 @@ class AbstractReceiver(ABC):
         self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
         return False
 
-    def perform_handshake(self, filename: str, protocol: Protocol) -> bool:
+    def perform_handshake(self, filename: str,addr: Tuple[str, int]) -> bool:
         """Perform handshake with server and handle dedicated port"""
         pass
