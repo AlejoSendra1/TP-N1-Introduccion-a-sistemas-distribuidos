@@ -23,7 +23,7 @@ def setup_logging(verbose, quiet):
     logging.basicConfig(
         level=level,
         format=log_format,
-        handlers=[logging.StreamHandler()]
+        handlers=[logging.FileHandler('logs/upload.log')]
     )
     
     return logging.getLogger(__name__)

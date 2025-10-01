@@ -3,6 +3,7 @@ Base classes and utilities for Reliable Data Transfer (RDT) Protocol
 Contains abstract classes, packet definitions, enums, and utility functions
 """
 
+import queue
 import struct
 import time
 import socket
@@ -16,6 +17,7 @@ PACKET_SIZE = 4096  # 4KB packets for better throughput
 TIMEOUT = 0.2  # 200ms timeout for better reliability
 MAX_RETRIES = 20
 WINDOW_SIZE = 20  # smaller window for better reliability with packet loss
+MAX_WINDOW_SIZE = 128 # maximum window size for 8-bit sequence numbers
 
 # stop & wait specific optimizations
 SW_PACKET_SIZE = 4096  # 8KB packets for stop & wait (fewer packets = faster)
@@ -28,7 +30,7 @@ DUPLICATED_FIN_TIMEOUT = 5 # 5s timeout for duplicated FIN
 FIRST_DATA_PACKET_TIMEOUT = 5.0  # 5s timeout for first DATA packet
 
 # packet structure constants
-HEADER_SIZE = 23  # fixed header size in bytes
+HEADER_SIZE = 14  # fixed header size in bytes
 
 # buffer sizes
 ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
@@ -120,11 +122,11 @@ class RDTPacket:
                  data: bytes = b'', filename: str = None, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
-        self.seq_num = seq_num
+        self.seq_num = seq_num % 256  # sequence number (0-255)
         self.packet_type = packet_type
         self.data = data
         self.filename = filename
-        self.ack_num = ack_num
+        self.ack_num = ack_num % 256  # acknowledgment number (0-255)
         self.protocol = protocol  # protocol for INIT packet
         self.session_id = session_id  # session identifier
         self.file_size = file_size  # file size for INIT packet
@@ -152,7 +154,7 @@ class RDTPacket:
         if self.session_id:
             checksum += sum(self.session_id.encode('utf-8'))
         
-        self.checksum = checksum % 65536
+        self.checksum = checksum % 256
     
     def verify_checksum(self) -> bool:
         """Verify packet integrity"""
@@ -183,17 +185,17 @@ class RDTPacket:
             except (ValueError, TypeError) as e:
                 session_id_byte = 0
         
-        # fixed binary header: 23 bytes
+        # fixed binary header: 14 bytes
         header_bytes = struct.pack(
-            '!IIIIIBBB',
-            self.seq_num,             # I (4 bytes)
-            self.checksum,            # I (4 bytes)
-            self.ack_num,             # I (4 bytes)
-            len(payload),             # I (4 bytes) - payload length
-            self.file_size,           # I (4 bytes)
-            self.packet_type.value,   # B (1 byte)
+            '!BBBIIBBB',
+            self.seq_num % 256,             # B (1 bytes)
+            self.checksum % 256,            # B (1 bytes)
+            self.ack_num % 256,             # B (1 bytes)
+            len(payload),                   # I (4 bytes) - payload length
+            self.file_size,                 # I (4 bytes)
+            self.packet_type.value,         # B (1 byte)
             self.protocol.value if self.protocol else 0,  # B (1 byte)
-            session_id_byte           # B (1 byte) - session ID (0-255)
+            session_id_byte                 # B (1 byte) - session ID (0-255)
         )
         
         return header_bytes + payload
@@ -209,7 +211,7 @@ class RDTPacket:
         
         # extract fixed header
         header_bytes = data[:HEADER_SIZE]
-        header = struct.unpack('!IIIIIBBB', header_bytes)
+        header = struct.unpack('!BBBIIBBB', header_bytes)
         
         # parse fields from header
         seq_num = header[0]
@@ -243,19 +245,19 @@ class RDTPacket:
             packet_data = payload
         
         packet = cls(
-            seq_num=seq_num,
+            seq_num=seq_num % 256,
             packet_type=packet_type,
             data=packet_data,
             filename=filename,
-            ack_num=ack_num,
+            ack_num=ack_num % 256,
             protocol=protocol,
             session_id=session_id,
             file_size=file_size
         )
         
         # Set checksum (no recalculate)
-        packet.checksum = checksum
-        
+        packet.checksum = checksum % 256
+         
         return packet
 
 
@@ -307,7 +309,7 @@ class AbstractSender(ABC):
             # prepare for transfer (only DATA packets)
             packets = self._prepare_packets(filepath)
             if not packets:
-                self.logger.warning("File is empty")
+                self.logger.warning(f"File {filepath} is empty")
                 return True
             
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
@@ -347,7 +349,7 @@ class AbstractSender(ABC):
                     break
                 
                 packet = RDTPacket(
-                    seq_num=chunk_index,
+                    seq_num=chunk_index % 256,  # wrap around at 256
                     packet_type=PacketType.DATA,
                     data=chunk
                 )
@@ -420,8 +422,8 @@ class AbstractReceiver(ABC):
     def __init__(self, socket: socket.socket, logger):
         self.socket = socket
         self.logger = logger
-    
-    def receive_file(self, client_addr: Tuple[str, int], session_id: str) -> Tuple[bool, bytes]:
+
+    def receive_file(self, client_addr: Tuple[str, int], session_id: str, bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive complete file from client
         Handles first packet reception, validation, and delegates to subclass
@@ -438,7 +440,7 @@ class AbstractReceiver(ABC):
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
             
-            self.logger.error(f"Packet from unexpected address: {addr}")
+            #self.logger.error(f"Packet from unexpected address: {addr}")
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
@@ -449,21 +451,21 @@ class AbstractReceiver(ABC):
             
             # validate session
             if first_packet.session_id != session_id:
-                self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+                self.logger.error(f"Invalid session ID: {first_packet.session_id} - expected: {session_id}")
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr, bytes_received) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
             return False, b''
         except Exception as e:
-            self.logger.error(f"Error receiving first packet: {e}")
+            self.logger.error(f"Error receiving first packet in session {session_id}: {e}")
             return False, b''
     
     @abstractmethod
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
 

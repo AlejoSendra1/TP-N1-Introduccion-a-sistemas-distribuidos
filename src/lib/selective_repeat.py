@@ -3,12 +3,13 @@ Selective Repeat RDT Protocol Implementation
 Reliable data transfer with sliding window and selective retransmission
 """
 
+import queue
 import socket
 from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
-    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
+    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
     HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
 )
 
@@ -18,7 +19,7 @@ class SelectiveRepeatSender(AbstractSender):
     
     def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, dest_addr, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         
         # selective repeat state variables (as per theory)
         self.send_base = 0  # oldest unacknowledged packet
@@ -53,7 +54,7 @@ class SelectiveRepeatSender(AbstractSender):
                    self.nextseqnum < self.send_base + self.window_size):
                 
                 packet = packets[self.nextseqnum]
-                packet.seq_num = self.nextseqnum
+                packet.seq_num = self.nextseqnum % 256  # ensure seq_num wraps around at 256
                 
                 # add session ID to all packets
                 if self.session_id:
@@ -63,7 +64,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # send packet
                 self.socket.sendto(packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent packet {self.nextseqnum}")
+                self.logger.debug(f"Sent packet {self.nextseqnum} (seq_num={packet.seq_num})")
                 
                 # add to window with timer
                 timer = PacketTimer()
@@ -74,15 +75,15 @@ class SelectiveRepeatSender(AbstractSender):
             # handle ACKs and timeouts
             if not self._handle_acks_and_timeouts():
                 return False
-        
-        self.logger.info("All packets sent and acknowledged successfully")
-        
+
+        self.logger.info(f"All packets sent and acknowledged successfully in session {self.session_id}")
+
         # send FIN to close session
         if self._send_fin():
-            self.logger.info("Session closed successfully")
+            self.logger.info(f"Session {self.session_id} closed successfully")
             return True
         else:
-            self.logger.error("Failed to close session")
+            self.logger.error(f"Failed to close session {self.session_id}")
             return False
     
     def _send_fin(self) -> bool:
@@ -137,15 +138,20 @@ class SelectiveRepeatSender(AbstractSender):
             # try to receive ACK (non-blocking)
             ack_data, _addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
             ack_packet = RDTPacket.from_bytes(ack_data)
-            
+            acked_packet_num = None
+            for packet_num in list(self.send_window.keys()):
+                if (packet_num % 256) == ack_packet.ack_num:
+                    acked_packet_num = packet_num
+                    break
+
             if (ack_packet.packet_type == PacketType.ACK and 
                 ack_packet.verify_checksum() and
-                ack_packet.ack_num in self.send_window):
-                
+                acked_packet_num in self.send_window):
+
                 # remove acknowledged packet from window
-                del self.send_window[ack_packet.ack_num]
-                self.logger.debug(f"Received ACK for packet {ack_packet.ack_num}")
-                
+                del self.send_window[acked_packet_num]
+                self.logger.debug(f"Received ACK for packet {acked_packet_num}")
+
                 # advance send_base if possible
                 while self.send_base not in self.send_window and self.send_base < self.nextseqnum:
                     self.send_base += 1
@@ -249,7 +255,7 @@ class SelectiveRepeatSender(AbstractSender):
                 self.socket.settimeout(original_timeout)
                 return False
                 
-        self.logger.error("Failed to establish session")
+        self.logger.error("Failed to establish session after max retries")
         self.socket.settimeout(original_timeout)
         return False
     
@@ -286,12 +292,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
     
     def __init__(self, socket: socket.socket, logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
-    
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
@@ -299,16 +305,18 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         client_host = addr[0]
         
         # process first packet  
-        complete = self._process_packet(first_packet, addr)
+        complete = self._process_packet(first_packet, addr, bytes_received)
         if complete:
             # file is complete, but continue receiving until FIN
-            self.logger.info("File transfer complete, waiting for FIN")
+            self.logger.info(f"File transfer complete, waiting for FIN")
         
         # continue receiving packets
         while True:
             # check for shutdown request
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''
             
             try:
@@ -324,11 +332,15 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
                     if self._handle_fin(packet, packet_addr):
+                        # Signal end of transmission to the writer thread
+                        bytes_received.put(None)
                         return True, self.received_data
+                    # Signal end of transmission even on error
+                    bytes_received.put(None)
                     return False, b''
                 
                 # process regular DATA packet
-                complete = self._process_packet(packet, packet_addr)
+                complete = self._process_packet(packet, packet_addr, bytes_received)
                 
                 # don't return here - continue until FIN
                     
@@ -336,11 +348,13 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
+                # Signal end of transmission to the writer thread
+                bytes_received.put(None)
                 return False, b''
-    
-    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+
+    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], bytes_received: queue.Queue) -> bool:
         """Process a received packet and return is_complete"""
-        seq_num = packet.seq_num
+        seq_num = packet.seq_num % 256  # ensure seq_num wraps around at 256    
         
         # always send ACK (even for duplicates or out-of-order)
         # Include session_id if packet has it
@@ -354,7 +368,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.socket.sendto(ack.to_bytes(), addr)
         
         
-        if seq_num >= self.rcv_base and seq_num < self.rcv_base + self.window_size:
+        if self._is_in_window(seq_num, self.rcv_base, self.window_size):
             # packet is within receiver window
             if seq_num not in self.rcv_window:
                 # new packet, buffer it
@@ -369,15 +383,20 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             
             while self.rcv_base in self.rcv_window:
                 delivered_packet = self.rcv_window.pop(self.rcv_base)
-                self.received_data += delivered_packet.data
+
+                # Push data chunk to the queue instead of individual bytes
+                if delivered_packet.data:  # Only put non-empty data
+                    bytes_received.put(delivered_packet.data)
+
+                self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 
                 if self.rcv_base == 0:
                     filename = delivered_packet.filename
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
-                
-                self.rcv_base += 1
-            
+
+                self.rcv_base = (self.rcv_base + 1) % 256 # wrap-around at 256
+
             if is_complete:
                 # file is complete, but don't return yet - we're waiting for FIN
                 return False
@@ -391,3 +410,17 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.debug(f"Packet {seq_num} outside receiver window, ignoring")
         
         return False
+    
+    def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
+        """Check if sequence number is within window (handles wrap-around)"""
+        # Calculate window end with wrap-around
+        window_end = (base + window_size) % 256
+        
+        if base < window_end:
+            # Normal case: no wrap-around
+            # Window: [base, window_end)
+            return base <= seq_num < window_end
+        else:
+            # Wrap-around case
+            # Window: [base, 255] ∪ [0, window_end)
+            return seq_num >= base or seq_num < window_end
