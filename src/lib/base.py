@@ -3,6 +3,7 @@ Base classes and utilities for Reliable Data Transfer (RDT) Protocol
 Contains abstract classes, packet definitions, enums, and utility functions
 """
 
+import queue
 import struct
 import time
 import socket
@@ -16,6 +17,10 @@ PACKET_SIZE = 4096  # 4KB packets for better throughput
 TIMEOUT = 0.2  # 200ms timeout for better reliability
 MAX_RETRIES = 20
 WINDOW_SIZE = 20  # smaller window for better reliability with packet loss
+MAX_WINDOW_SIZE = 128 # maximum window size for 8-bit sequence numbers
+
+# sequence number space (8-bit sequence numbers: 0-255)
+SEQ_NUM_MODULO = 256  # modulo for sequence number wrap-around
 
 # stop & wait specific optimizations
 SW_PACKET_SIZE = 4096  # 8KB packets for stop & wait (fewer packets = faster)
@@ -24,10 +29,11 @@ SW_TIMEOUT = 0.05  # 50ms timeout for stop & wait (very aggressive)
 # timeout constants for critical operations
 HANDSHAKE_TIMEOUT = 1 # 1s timeout for INIT/ACCEPT handshake
 FIN_TIMEOUT = 1  # 1s timeout for FIN/FIN-ACK handshake
+DUPLICATED_FIN_TIMEOUT = 5 # 5s timeout for duplicated FIN
 FIRST_DATA_PACKET_TIMEOUT = 5.0  # 5s timeout for first DATA packet
 
 # packet structure constants
-HEADER_SIZE = 23  # fixed header size in bytes
+HEADER_SIZE = 14  # fixed header size in bytes
 
 # buffer sizes
 ACK_BUFFER_SIZE = 1024  # buffer size for ACK packets
@@ -119,11 +125,11 @@ class RDTPacket:
                  data: bytes = b'', filename: str = None, 
                  ack_num: int = 0, protocol: Optional[Protocol] = None, 
                  session_id: str = '', file_size: int = 0):
-        self.seq_num = seq_num
+        self.seq_num = seq_num % SEQ_NUM_MODULO  # sequence number (0-255)
         self.packet_type = packet_type
         self.data = data
         self.filename = filename
-        self.ack_num = ack_num
+        self.ack_num = ack_num % SEQ_NUM_MODULO  # acknowledgment number (0-255)
         self.protocol = protocol  # protocol for INIT packet
         self.session_id = session_id  # session identifier
         self.file_size = file_size  # file size for INIT packet
@@ -151,7 +157,7 @@ class RDTPacket:
         if self.session_id:
             checksum += sum(self.session_id.encode('utf-8'))
         
-        self.checksum = checksum % 65536
+        self.checksum = checksum % SEQ_NUM_MODULO
     
     def verify_checksum(self) -> bool:
         """Verify packet integrity"""
@@ -182,17 +188,17 @@ class RDTPacket:
             except (ValueError, TypeError) as e:
                 session_id_byte = 0
         
-        # fixed binary header: 23 bytes
+        # fixed binary header: 14 bytes
         header_bytes = struct.pack(
-            '!IIIIIBBB',
-            self.seq_num,             # I (4 bytes)
-            self.checksum,            # I (4 bytes)
-            self.ack_num,             # I (4 bytes)
-            len(payload),             # I (4 bytes) - payload length
-            self.file_size,           # I (4 bytes)
-            self.packet_type.value,   # B (1 byte)
+            '!BBBIIBBB',
+            self.seq_num % SEQ_NUM_MODULO,             # B (1 bytes)
+            self.checksum % SEQ_NUM_MODULO,            # B (1 bytes)
+            self.ack_num % SEQ_NUM_MODULO,             # B (1 bytes)
+            len(payload),                   # I (4 bytes) - payload length
+            self.file_size,                 # I (4 bytes)
+            self.packet_type.value,         # B (1 byte)
             self.protocol.value if self.protocol else 0,  # B (1 byte)
-            session_id_byte           # B (1 byte) - session ID (0-255)
+            session_id_byte                 # B (1 byte) - session ID (0-255)
         )
         
         return header_bytes + payload
@@ -208,7 +214,7 @@ class RDTPacket:
         
         # extract fixed header
         header_bytes = data[:HEADER_SIZE]
-        header = struct.unpack('!IIIIIBBB', header_bytes)
+        header = struct.unpack('!BBBIIBBB', header_bytes)
         
         # parse fields from header
         seq_num = header[0]
@@ -242,19 +248,19 @@ class RDTPacket:
             packet_data = payload
         
         packet = cls(
-            seq_num=seq_num,
+            seq_num=seq_num % SEQ_NUM_MODULO,
             packet_type=packet_type,
             data=packet_data,
             filename=filename,
-            ack_num=ack_num,
+            ack_num=ack_num % SEQ_NUM_MODULO,
             protocol=protocol,
             session_id=session_id,
             file_size=file_size
         )
         
         # Set checksum (no recalculate)
-        packet.checksum = checksum
-        
+        packet.checksum = checksum % SEQ_NUM_MODULO
+
         return packet
 
 
@@ -306,7 +312,7 @@ class AbstractSender(ABC):
             # prepare for transfer (only DATA packets)
             packets = self._prepare_packets(filepath)
             if not packets:
-                self.logger.warning("File is empty")
+                self.logger.warning(f"File {filepath} is empty")
                 return True
             
             self.logger.info(f"Starting file transfer: {filename} ({len(packets)} packets)")
@@ -346,7 +352,7 @@ class AbstractSender(ABC):
                     break
                 
                 packet = RDTPacket(
-                    seq_num=chunk_index,
+                    seq_num=chunk_index % SEQ_NUM_MODULO,  # wrap around at SEQ_NUM_MODULO
                     packet_type=PacketType.DATA,
                     data=chunk
                 )
@@ -453,8 +459,8 @@ class AbstractReceiver(ABC):
     def __init__(self, socket: socket.socket, logger):
         self.socket = socket
         self.logger = logger
-    
-    def receive_file(self, client_addr: Tuple[str, int], session_id: str) -> Tuple[bool, bytes]:
+
+    def receive_file(self, client_addr: Tuple[str, int], session_id: str, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """
         Receive complete file from client
         Handles first packet reception, validation, and delegates to subclass
@@ -462,7 +468,8 @@ class AbstractReceiver(ABC):
         Args:
             client_addr: Expected client address
             session_id: Expected session ID
-            
+            data_queue: Queue to store received data chunks
+
         Returns:
             Tuple[bool, bytes]: (success, file_data)
         """
@@ -470,6 +477,11 @@ class AbstractReceiver(ABC):
             # wait for first DATA packet
             self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
             data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE) # use largest buffer size to support both protocols
+<<<<<<< HEAD
+=======
+            
+            #self.logger.error(f"Packet from unexpected address: {addr}")
+>>>>>>> concurrent-download
 
             # validate source (only check host, not port - OS may assign different port when client is reconnecting)
             if addr[0] != client_addr[0]:
@@ -480,21 +492,64 @@ class AbstractReceiver(ABC):
             
             # validate session
             if first_packet.session_id != session_id:
-                self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+                self.logger.error(f"Invalid session ID: {first_packet.session_id} - expected: {session_id}")
                 return False, b''
             
             # delegate to subclass implementation
-            return self.receive_file_with_first_packet(first_packet, addr) # TODO: do not separate first packet reception from the rest of the file !!!!
+            return self.receive_file_with_first_packet(first_packet, addr, data_queue) # TODO: do not separate first packet reception from the rest of the file !!!!
             
         except timeout as e:
             self.logger.error("Timeout waiting for first DATA packet")
             return False, b''
         except Exception as e:
-            self.logger.error(f"Error receiving first packet: {e}")
+            self.logger.error(f"Error receiving first packet in session {session_id}: {e}")
             return False, b''
-    
+
     @abstractmethod
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+    def receive_file_after_handshake(self, data_queue: queue.Queue):
+        pass
+
+
+    @abstractmethod
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet - must be implemented by subclasses"""
         pass
 
+    def _handle_fin(self, fin_packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+        self.logger.debug("esperando fin")
+        fin_ack = RDTPacket(
+            packet_type=PacketType.FIN_ACK,
+            session_id= fin_packet.session_id if hasattr(fin_packet, 'session_id') and fin_packet.session_id else ''
+        )
+        self.socket.sendto(fin_ack.to_bytes(), addr)
+        for i in range(MAX_RETRIES):
+            try:
+                # wait for duplicated FIN packet with timeout
+                self.socket.settimeout(DUPLICATED_FIN_TIMEOUT)
+                data, rcv_addr = self.socket.recvfrom(DATA_BUFFER_SIZE)
+                packet = RDTPacket.from_bytes(data)
+                if (packet.packet_type == PacketType.FIN and
+                        fin_packet.session_id == packet.session_id and
+                        addr == rcv_addr):
+
+                    # send FIN ACK
+                    self.socket.sendto(fin_ack.to_bytes(), addr)
+                    self.logger.info(f"Session {fin_packet.session_id} resending FIN ACK")
+
+                else:
+                    self.logger.warning(
+                        f"Invalid FIN packet from {addr}, expected: {PacketType.FIN},{fin_packet.session_id},{addr}  received: {packet.packet_type},{packet.session_id},{rcv_addr}")
+
+            except timeout:
+                self.logger.debug("No duplicated FIN received before timeout, finishing session")
+                return True
+            except Exception as e:
+                self.logger.error(f"Error handling FIN: {e}")
+                return False
+        self.logger.warning(f"Fin retries limit reached, forcibly ending the session")
+        return False
+
+    @abstractmethod
+    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
+        """Perform handshake with server"""
+        pass

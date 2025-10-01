@@ -3,13 +3,14 @@ Selective Repeat RDT Protocol Implementation
 Reliable data transfer with sliding window and selective retransmission
 """
 
+import queue
 import socket
 from socket import timeout
 from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
-    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE, 
-    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested
+    TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE,
+    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested, SEQ_NUM_MODULO, FIRST_DATA_PACKET_TIMEOUT
 )
 
 
@@ -18,7 +19,7 @@ class SelectiveRepeatSender(AbstractSender):
     
     def __init__(self, socket: socket.socket, dest_addr: Tuple[str, int], logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, dest_addr, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         
         # selective repeat state variables (as per theory)
         self.send_base = 0  # oldest unacknowledged packet
@@ -53,7 +54,7 @@ class SelectiveRepeatSender(AbstractSender):
                    self.nextseqnum < self.send_base + self.window_size):
                 
                 packet = packets[self.nextseqnum]
-                packet.seq_num = self.nextseqnum
+                packet.seq_num = self.nextseqnum % SEQ_NUM_MODULO  # ensure seq_num wraps around
                 
                 # add session ID to all packets
                 if self.session_id:
@@ -63,7 +64,7 @@ class SelectiveRepeatSender(AbstractSender):
                 
                 # send packet
                 self.socket.sendto(packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent packet {self.nextseqnum}")
+                self.logger.debug(f"Sent packet {self.nextseqnum} (seq_num={packet.seq_num})")
                 
                 # add to window with timer
                 timer = PacketTimer()
@@ -74,15 +75,15 @@ class SelectiveRepeatSender(AbstractSender):
             # handle ACKs and timeouts
             if not self._handle_acks_and_timeouts():
                 return False
-        
-        self.logger.info("All packets sent and acknowledged successfully")
-        
+
+        self.logger.info(f"All packets sent and acknowledged successfully in session {self.session_id}")
+
         # send FIN to close session
         if self._send_fin():
-            self.logger.info("Session closed successfully")
+            self.logger.info(f"Session {self.session_id} closed successfully")
             return True
         else:
-            self.logger.error("Failed to close session")
+            self.logger.error(f"Failed to close session {self.session_id}")
             return False
     
     def _send_fin(self) -> bool:
@@ -137,15 +138,20 @@ class SelectiveRepeatSender(AbstractSender):
             # try to receive ACK (non-blocking)
             ack_data, _addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
             ack_packet = RDTPacket.from_bytes(ack_data)
-            
+            acked_packet_num = None
+            for packet_num in list(self.send_window.keys()):
+                if (packet_num % SEQ_NUM_MODULO) == ack_packet.ack_num:
+                    acked_packet_num = packet_num
+                    break
+
             if (ack_packet.packet_type == PacketType.ACK and 
                 ack_packet.verify_checksum() and
-                ack_packet.ack_num in self.send_window):
-                
+                acked_packet_num in self.send_window):
+
                 # remove acknowledged packet from window
-                del self.send_window[ack_packet.ack_num]
-                self.logger.debug(f"Received ACK for packet {ack_packet.ack_num}")
-                
+                del self.send_window[acked_packet_num]
+                self.logger.debug(f"Received ACK for packet {acked_packet_num}")
+
                 # advance send_base if possible
                 while self.send_base not in self.send_window and self.send_base < self.nextseqnum:
                     self.send_base += 1
@@ -249,7 +255,7 @@ class SelectiveRepeatSender(AbstractSender):
                 self.socket.settimeout(original_timeout)
                 return False
                 
-        self.logger.error("Failed to establish session")
+        self.logger.error("Failed to establish session after max retries")
         self.socket.settimeout(original_timeout)
         return False
     
@@ -286,29 +292,37 @@ class SelectiveRepeatReceiver(AbstractReceiver):
     
     def __init__(self, socket: socket.socket, logger, window_size: int = WINDOW_SIZE):
         super().__init__(socket, logger)
-        self.window_size = window_size
+        self.window_size = min(window_size, MAX_WINDOW_SIZE) # enforce max window size
         self.rcv_base = 0  # oldest expected packet
         self.rcv_window: Dict[int, RDTPacket] = {}  # {seq_num: packet}
         self.received_data = b''  # Accumulator for all received data
-    
-    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int]) -> Tuple[bool, bytes]:
+        self.session_id = None
+        self.dest_addr = None
+
+
+
+    def receive_file_with_first_packet(self, first_packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file starting with first packet"""
         self.logger.info("Starting file reception with Selective Repeat")
         
         # store the client address from first packet for validation
-        client_host = addr[0]
+        if not self.dest_addr:
+            self.dest_addr = addr
+        client_host = self.dest_addr[0]
         
         # process first packet  
-        complete = self._process_packet(first_packet, addr)
+        complete = self._process_packet(first_packet, addr, data_queue)
         if complete:
             # file is complete, but continue receiving until FIN
-            self.logger.info("File transfer complete, waiting for FIN")
+            self.logger.info(f"File transfer complete, waiting for FIN")
         
         # continue receiving packets
         while True:
             # check for shutdown request
             if is_shutdown_requested():
                 self.logger.info("File reception cancelled due to shutdown request")
+                # Signal end of transmission to the writer thread
+                data_queue.put(None)
                 return False, b''
             
             try:
@@ -323,20 +337,16 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 # check if this is a FIN packet
                 if packet.packet_type == PacketType.FIN:
                     self.logger.info("Received FIN packet, sending FIN-ACK")
-                    # send FIN_ACK
-                    fin_ack = RDTPacket(
-                        packet_type=PacketType.FIN_ACK,
-                        session_id=packet.session_id
-                    )
-                    try:
-                        self.socket.sendto(fin_ack.to_bytes(), packet_addr)
-                        self.logger.debug("Sent FIN-ACK packet")
-                    except Exception as e:
-                        self.logger.error(f"Error sending FIN-ACK: {e}")
-                    return True, self.received_data
+                    if self._handle_fin(packet, packet_addr):
+                        # Signal end of transmission to the writer thread
+                        data_queue.put(None)
+                        return True, self.received_data
+                    # Signal end of transmission even on error
+                    data_queue.put(None)
+                    return False, b''
                 
                 # process regular DATA packet
-                complete = self._process_packet(packet, packet_addr)
+                complete = self._process_packet(packet, packet_addr, data_queue)
                 
                 # don't return here - continue until FIN
                     
@@ -344,11 +354,13 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                 continue
             except Exception as e:
                 self.logger.error(f"Error receiving packet: {e}")
+                # Signal end of transmission to the writer thread
+                data_queue.put(None)
                 return False, b''
-    
-    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int]) -> bool:
+
+    def _process_packet(self, packet: RDTPacket, addr: Tuple[str, int], data_queue: queue.Queue) -> bool:
         """Process a received packet and return is_complete"""
-        seq_num = packet.seq_num
+        seq_num = packet.seq_num % SEQ_NUM_MODULO  # ensure seq_num wraps around
         
         # always send ACK (even for duplicates or out-of-order)
         # Include session_id if packet has it
@@ -362,7 +374,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.socket.sendto(ack.to_bytes(), addr)
         
         
-        if seq_num >= self.rcv_base and seq_num < self.rcv_base + self.window_size:
+        if self._is_in_window(seq_num, self.rcv_base, self.window_size):
             # packet is within receiver window
             if seq_num not in self.rcv_window:
                 # new packet, buffer it
@@ -377,15 +389,20 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             
             while self.rcv_base in self.rcv_window:
                 delivered_packet = self.rcv_window.pop(self.rcv_base)
-                self.received_data += delivered_packet.data
+
+                # Push data chunk to the queue instead of individual bytes
+                if delivered_packet.data:  # Only put non-empty data
+                    data_queue.put(delivered_packet.data)
+
+                self.received_data += delivered_packet.data # TODO: remove this line when using queue
                 
                 if self.rcv_base == 0:
                     filename = delivered_packet.filename
                 
                 self.logger.debug(f"Delivered packet {self.rcv_base}")
-                
-                self.rcv_base += 1
-            
+
+                self.rcv_base = (self.rcv_base + 1) % SEQ_NUM_MODULO  # wrap-around
+
             if is_complete:
                 # file is complete, but don't return yet - we're waiting for FIN
                 return False
@@ -399,3 +416,122 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.debug(f"Packet {seq_num} outside receiver window, ignoring")
         
         return False
+
+    def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
+        """Check if sequence number is within window (handles wrap-around)"""
+        # Calculate window end with wrap-around
+        window_end = (base + window_size) % SEQ_NUM_MODULO
+
+        if base < window_end:
+            # Normal case: no wrap-around
+            # Window: [base, window_end)
+            return base <= seq_num < window_end
+        else:
+            # Wrap-around case
+            # Window: [base, 255] ∪ [0, window_end)
+            return seq_num >= base or seq_num < window_end
+
+    def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
+        """Perform handshake with server and handle dedicated port"""
+        # Create INIT packet
+        init_packet = RDTPacket(
+            packet_type=PacketType.INIT,
+            filename=filename,
+            file_size=0,
+            protocol=Protocol.SELECTIVE_REPEAT
+        )
+
+        # longer timeout for handshake
+        original_timeout = self.socket.gettimeout()
+        self.socket.settimeout(HANDSHAKE_TIMEOUT)
+
+        for attempt in range(MAX_RETRIES):
+            if is_shutdown_requested():
+                self.socket.settimeout(original_timeout)
+                return False
+
+            try:
+                # send INIT to main server port
+                self.socket.sendto(init_packet.to_bytes(), addr)
+                self.logger.debug(f"Sent INIT packet (attempt {attempt + 1})")
+
+                # Wait for ACCEPT
+                accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
+                accept_packet = RDTPacket.from_bytes(accept_data)
+
+                if (accept_packet.packet_type == PacketType.ACCEPT and
+                        accept_packet.session_id and
+                        accept_packet.verify_checksum()):
+
+                    self.session_id = accept_packet.session_id
+
+                    # extract dedicated port from payload
+                    if accept_packet.data:
+                        try:
+                            dedicated_port = int(accept_packet.data.decode('utf-8'))
+                            self.logger.info(f"Received dedicated port: {dedicated_port}")
+
+                            # reconnect to dedicated port
+                            if self._reconnect_to_dedicated_port(dedicated_port, addr):
+                                self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                                self.socket.settimeout(original_timeout)
+                                return True
+                            else:
+                                self.logger.error("Failed to reconnect to dedicated port")
+
+                        except (ValueError, UnicodeDecodeError) as e:
+                            self.logger.error(f"Invalid dedicated port in ACCEPT: {e}")
+                    else:
+                        # no dedicated port - use original behavior
+                        self.logger.info(f"Handshake successful, session ID: {self.session_id}")
+                        self.socket.settimeout(original_timeout)
+                        return True
+
+            except timeout as e:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
+            except Exception as e:
+                self.logger.error(f"Error during handshake: {e}")
+                self.socket.settimeout(original_timeout)
+                return False
+
+        self.logger.error("Failed to establish session")
+        self.socket.settimeout(original_timeout)
+        return False
+
+    def _reconnect_to_dedicated_port(self, dedicated_port: int, addr: Tuple[str, int]) -> bool:
+        """Reconnect socket to dedicated port"""
+        try:
+            # update destination address to use dedicated port
+            dedicated_host = addr[0]
+            self.dest_addr = (dedicated_host, dedicated_port)
+
+            # small delay to allow server thread to be ready
+            import time
+            time.sleep(0.1)
+
+            self.logger.debug(f"Reconnected to dedicated port {dedicated_port}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to reconnect to dedicated port: {e}")
+            return False
+
+    def receive_file_after_handshake(self, data_queue: queue.Queue) -> Tuple[bool, bytes]:
+        """Receive file after handshake"""
+        self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
+        data, addr = self.socket.recvfrom(DATA_BUFFER_SIZE)  # use largest buffer size to support both protocols
+
+        # validate source (only check host, not port - OS may assign different port when client is reconnecting)
+        if addr[0] != self.dest_addr[0]:
+            self.logger.error(f"Packet from unexpected host: {addr[0]} (expected {self.dest_addr[0]})")
+            return False, b''
+
+        first_packet = RDTPacket.from_bytes(data)
+
+        # validate session
+        if first_packet.session_id != self.session_id:
+            self.logger.error(f"Invalid session ID: {first_packet.session_id}")
+            return False, b''
+
+        # delegate to subclass implementation
+        return self.receive_file_with_first_packet(first_packet, addr, data_queue)  # TODO: do not separate first packet reception from the rest of the file !!!!

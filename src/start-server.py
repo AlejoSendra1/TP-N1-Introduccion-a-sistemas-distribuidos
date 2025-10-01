@@ -5,11 +5,56 @@ import logging
 import signal
 import random
 import threading
+import queue
 import time
+from abc import ABC, abstractmethod
 from typing import Tuple, Optional, Dict
+<<<<<<< HEAD
 from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet
 from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
+=======
+from lib import RDTPacket, PacketType, Protocol, create_receiver, wait_for_init_packet, SEQ_NUM_MODULO
+>>>>>>> concurrent-download
 from lib.factory import create_sender
+
+class AbstractRequest(ABC):
+    """
+    Abstract base class for all transfer requests
+    Defines the polymorphic interface that all request types must implement
+    """
+
+    @abstractmethod
+    def accept(self) -> bool:
+        """
+        Accept and handle the request
+
+        Returns:
+            bool: True if request was handled successfully, False otherwise
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def filename(self) -> str:
+        """The filename associated with this request"""
+        pass
+
+    @property
+    @abstractmethod
+    def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
+        pass
+
+    @abstractmethod
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        pass
+
 
 class SessionInfo:
     """Information about an active concurrent session"""
@@ -23,8 +68,10 @@ class SessionInfo:
         self.created_at = time.time()
         self.connected = False  # True when dedicated thread starts for dedicated client port
 
-class Session:
+
+class ConcurrentTransferRequest(AbstractRequest):
     """
+<<<<<<< HEAD
     Manages a complete RDT file transfer session
     Handles handshake and delegates to appropriate receiver
     """
@@ -180,7 +227,11 @@ class Session:
 class ConcurrentTransferRequest:
     """
     Represents an incoming transfer request with concurrent handling
+=======
+    Represents an incoming upload transfer request with concurrent handling
+>>>>>>> concurrent-download
     Creates dedicated port and thread for each transfer
+    Inherits from AbstractRequest to provide polymorphic interface
     """
     
     def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
@@ -206,21 +257,38 @@ class ConcurrentTransferRequest:
     @property
     def source_address(self) -> Tuple[str, int]:
         return self.client_addr
-        
-    def accept(self) -> Optional[Tuple[bool, bytes]]:
+
+    def accept(self) -> bool:
         """
         Accept the transfer with dedicated port and thread
-        
+        Handles queue and writer thread creation internally
+
         Returns:
-            Tuple[bool, bytes] or None if handshake fails
+            bool: True if transfer started successfully, False otherwise
         """
         try:
+            # create data queue for thread communication
+            data_queue = queue.Queue()
+
+            # construct filepath for saving the file
+            storage_dir = self.file_server.storage_dir
+            filepath = os.path.join(storage_dir, self.filename)
+
+            # create writer thread to save data to disk
+            writer_thread = threading.Thread(
+                target=write_file,
+                args=(data_queue, filepath),
+                daemon=True
+            )
+            writer_thread.start()
+            self.logger.debug(f"Started writer thread for {filepath}")
+
             # create dedicated socket and port
             dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
             self._dedicated_port = dedicated_port
             
             # generate session ID
-            session_id = str(random.randint(1, 255))
+            session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))
             self._session_id = session_id
             
             # send ACCEPT with dedicated port in payload
@@ -263,7 +331,7 @@ class ConcurrentTransferRequest:
             # create thread to handle transfer on dedicated port
             transfer_thread = threading.Thread(
                 target=self._handle_dedicated_transfer,
-                args=(dedicated_sock, session_id),
+                args=(dedicated_sock, session_id, data_queue),
                 daemon=True
             )
             
@@ -282,13 +350,13 @@ class ConcurrentTransferRequest:
             # start transfer thread
             transfer_thread.start()
             
-            return True, b''  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
+            return True
             
         except Exception as e:
             self.logger.error(f"Failed to accept transfer: {e}")
-            return None
+            return False
     
-    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str):
+    def _handle_dedicated_transfer(self, dedicated_sock: socket.socket, session_id: str, data_queue: queue.Queue):
         """Handle the actual transfer on dedicated port (runs in separate thread)"""
         try:
             self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
@@ -303,7 +371,7 @@ class ConcurrentTransferRequest:
             receiver = create_receiver(self.protocol, dedicated_sock, self.logger)
             
             # the client will send DATA packets directly to this dedicated port
-            success, file_data = receiver.receive_file(self.client_addr, session_id)
+            success, file_data = receiver.receive_file(self.client_addr, session_id, data_queue)
             
             if success:
                 # send FIN ACK to complete the transfer
@@ -356,44 +424,76 @@ class ConcurrentTransferRequest:
             self.logger.error(f"Failed to send rejection: {e}")
 
 
-class TransferRequest:
-    """
-    Legacy TransferRequest class for backward compatibility
-    Represents an incoming transfer request
-    Provides simple interface for server to accept/reject
-    """
-    
-    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int]):
-        self.sock = sock
-        self.logger = logger
+
+
+class ConcurrentDownloadRequest(AbstractRequest):
+    def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
+        self.file_server = file_server
         self.init_packet = init_packet
         self.client_addr = client_addr
-        self.session = Session(sock, logger)
-        self._session_id = None  # cache session ID after handshake
-        
+        self.logger = file_server.logger
+        self._session_id = None
+        self._dedicated_port = None
+
     @property
     def filename(self) -> str:
+        """The filename requested by the client"""
         return self.init_packet.filename
-        
-    @property
-    def file_size(self) -> int:
-        return self.init_packet.file_size
-        
+
     @property
     def protocol(self) -> Protocol:
+        """The protocol requested by the client"""
         return self.init_packet.protocol
-        
+
     @property
     def source_address(self) -> Tuple[str, int]:
+        """The client's address"""
         return self.client_addr
-        
-    def accept(self) -> Optional[Tuple[bool, bytes]]:
+
+    def _handle_dedicated_request(self, dedicated_sock: socket.socket, session_id: str):
+        try:
+            self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
+
+            # mark session as connected when dedicated thread starts
+            # if client does not connect to dedicated port, the session will be cleaned up after a timeout
+            with self.file_server.sessions_lock:
+                if session_id in self.file_server.active_sessions:
+                    self.file_server.active_sessions[session_id].connected = True
+
+            # ccreate receiver for this dedicated download
+            sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger)
+            sender.session_id = session_id
+            self.logger.debug(f"Created sender for session {session_id} for client with address: {self.client_addr}")
+
+            storage_dir = getattr(self.file_server, 'storage_dir', 'storage')
+
+            safe_filename = os.path.basename(self.filename.strip())
+            filepath = os.path.join(storage_dir, safe_filename)
+
+
+            # the client will send DATA packets directly to this dedicated port
+            success = sender.send_file(filepath, self.filename)
+
+            if success:
+                self.logger.info(f"File download completed for session {session_id}")
+            else:
+                self.logger.error(f"File download failed for session {session_id}")
+
+        except Exception as e:
+            self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
+        finally:
+            # Cleanup session
+            self.file_server.remove_session(session_id)
+            dedicated_sock.close()
+            self.logger.info(f"Session {session_id} cleaned up")
+
+    def accept(self) -> bool:
         """
-        Accept the transfer and receive the file
-        
+        Do the handshake and set up for receiving incoming bytes
         Returns:
-            Tuple[bool, bytes] or None if handshake fails
+            True if file was sent successfully, False otherwise
         """
+<<<<<<< HEAD
         if self.session.accept_transfer(self.init_packet, self.client_addr):
             self._session_id = self.session.session_id  # cache for future use
             return self.session.receive_file()
@@ -402,6 +502,108 @@ class TransferRequest:
     def reject(self, reason: str = "Transfer rejected"):
         """Reject the transfer request"""
         self.session.reject_transfer(self.client_addr, reason)
+=======
+        storage_dir = self.file_server.storage_dir
+        filepath = os.path.join(storage_dir, self.filename)
+        if not os.path.exists(filepath):
+            return False
+
+        try:
+            # create dedicated socket and port
+            dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
+            self._dedicated_port = dedicated_port
+
+            # generate session ID
+            session_id = str(random.randint(1, 255))
+            self._session_id = session_id
+
+
+
+            # send ACCEPT with dedicated port in payload
+            accept_packet = RDTPacket(
+                packet_type=PacketType.ACCEPT,
+                session_id=session_id,
+                data=str(dedicated_port).encode('utf-8')  # port in payload
+            )
+
+            self.file_server.sock.sendto(accept_packet.to_bytes(), self.client_addr)
+            self.logger.info(f"Sent ACCEPT to {self.client_addr} with dedicated port {dedicated_port}")
+
+            transfer_thread = threading.Thread(
+                target=self._handle_dedicated_request,
+                args=(dedicated_sock, session_id),
+                daemon=True
+            )
+
+            # create session info
+            session_info = SessionInfo(
+                session_id=session_id,
+                dedicated_port=dedicated_port,
+                thread=transfer_thread,
+                dedicated_socket=dedicated_sock,
+                client_addr=self.client_addr
+            )
+
+            # add to active sessions
+            self.file_server.add_session(session_id, session_info)
+
+            # start transfer thread
+            transfer_thread.start()
+
+            return True  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
+        except Exception as e:
+            return False
+
+    def get_session_id(self) -> Optional[str]:
+        """
+        Get the session ID after acceptance
+        Useful for future concurrent server implementations
+
+        Returns:
+            Session ID or None if not yet accepted
+        """
+        return self._session_id
+
+    def reject(self, reason: str = "Download request rejected"):
+        """
+        Reject the download request
+
+        Args:
+            reason: Reason for rejection to send to client
+        """
+
+        error_packet = RDTPacket(
+            packet_type=PacketType.ERROR,
+            data=reason.encode('utf-8')
+        )
+        try:
+            self.file_server.sock.sendto(error_packet.to_bytes(), self.client_addr)
+        except Exception as e:
+            self.logger.error(f"Failed to send rejection: {e}")
+        pass
+
+
+    @staticmethod
+    def extract_session_id(packet_data: bytes) -> Optional[str]:
+        """
+        Extract session ID from raw packet data without full parsing
+        Useful for future concurrent server implementations to route packets
+
+        Args:
+            packet_data: Raw packet bytes
+
+        Returns:
+            Session ID or None if packet doesn't contain one
+        """
+        try:
+            # Quick extraction without full validation
+            # Session ID is at a fixed offset in the packet structure
+            packet = RDTPacket.from_bytes(packet_data)
+            return packet.session_id
+        except Exception:
+            return None
+
+>>>>>>> concurrent-download
 
 
 class FileServer:
@@ -414,6 +616,7 @@ class FileServer:
         self.sock = sock
         self.logger = logger
         self.max_concurrent = max_concurrent
+        self.storage_dir = None
         
         # for concurrent session management
         self.active_sessions: Dict[str, SessionInfo] = {}
@@ -428,7 +631,7 @@ class FileServer:
         
         self.logger.info(f"Concurrent server initialized (max {max_concurrent} sessions)")
         
-    def wait_for_transfer(self, timeout: Optional[float] = None) -> Optional['ConcurrentTransferRequest']:
+    def wait_for_transfer(self, timeout: Optional[float] = None) -> ConcurrentDownloadRequest | None | ConcurrentTransferRequest:
         """
         Wait for an incoming transfer request and assign dedicated port
         
@@ -442,8 +645,8 @@ class FileServer:
             
             if packet.file_size == 0:
                 self.logger.info('devolviendo download req en wait for transfer') ##sacar
-                return DownloadRequest(self.sock, self.logger, packet, addr)
-            
+                return ConcurrentDownloadRequest(self, packet, addr)
+
             self.logger.debug(f"Received INIT packet from {addr}: {packet.filename}")
             
             # check if server is at capacity
@@ -544,6 +747,7 @@ class GracefulKiller:
         self.logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.kill_now = True
 
+<<<<<<< HEAD
 class DownloadRequest:
     """
     Represents an incoming download request
@@ -645,6 +849,8 @@ class DownloadRequest:
         except Exception:
             return None
 
+=======
+>>>>>>> concurrent-download
 def setup_logging(verbose, quiet):
     log_format = '%(asctime)s - %(levelname)s - %(message)s'
     
@@ -654,11 +860,16 @@ def setup_logging(verbose, quiet):
         level = logging.WARNING
     else:
         level = logging.INFO
-    
+
+    # create logs directory if it does not exist
+    log_dir = 'logs'
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
     logging.basicConfig(
         level=level,
         format=log_format,
-        handlers=[logging.StreamHandler()]
+        handlers=[logging.FileHandler('logs/server.log')]
     )
     
     return logging.getLogger(__name__)
@@ -680,6 +891,17 @@ def setup_argparse():
                        help='storage dir path')
     
     return parser.parse_args()
+
+def write_file(queue: queue.Queue, filepath: str):
+    """Thread function to write received bytes to file"""
+    dir, filename = os.path.split(filepath)
+    with open(f"{dir}/{filename}", 'wb') as f:
+        while True:
+            data = queue.get()
+            if data is None:
+                break
+            f.write(bytes(data))
+            queue.task_done()
 
 
 def main():
@@ -712,45 +934,30 @@ def main():
         
         # store storage directory for use in ConcurrentTransferRequest
         file_server.storage_dir = args.storage
-        
+
         while not killer.kill_now:
             # wait for transfer request
             request = file_server.wait_for_transfer()
             
             if request:
+<<<<<<< HEAD
                 
                 # handle different request types:
                 if isinstance(request, DownloadRequest):
                     logger.info(f"Download request from {request.source_address}: {request.filename}")
                     # handle download request
+=======
+                # polymorphic handling: all requests use the same .accept() interface
+                logger.info(f"Request from {request.source_address}: {request.filename}")
+>>>>>>> concurrent-download
 
-                    filepath = os.path.join(args.storage, request.filename)
-                    if os.path.exists(filepath):
-                        success = request.accept(filepath)  # send file to client
-                        if success:
-                            logger.info(f"Connection setuped succesfully")
-                        else:
-                            logger.error("Connection error")
+                success = request.accept()
 
-                        
-                    else:
-                        logger.error(f"File not found: {filepath}")
-                        request.reject("File not found")
-                elif isinstance(request, ConcurrentTransferRequest):
-                    logger.info(f"Transfer request from {request.source_address}: {request.filename}")
-                
-                    # starts a background thread and returns immediately
-                    result = request.accept()
-                    
-                    if result:
-                        success, _ = result
-                        if success:
-                            logger.info(f"Transfer accepted and started in background thread")
-                        else:
-                            logger.error("Transfer failed to start")
-                    else:
-                        logger.error("Handshake failed")
-    
+                if success:
+                    logger.info(f"Request handled successfully")
+                else:
+                    logger.error("Request failed")
+
     except KeyboardInterrupt as e:
         logger.info("Keyboard interrupt received")
     except Exception as e:

@@ -4,3 +4,5 @@ data
 enunciado.txt
 *.pyc
 /storage
+*/__pycache__
+src/logs/*
