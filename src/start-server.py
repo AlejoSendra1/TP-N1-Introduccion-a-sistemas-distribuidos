@@ -366,7 +366,7 @@ class ConcurrentTransferRequest(AbstractRequest):
 
 
 
-class ConcurrentDownloadRequest:
+class ConcurrentDownloadRequest(AbstractRequest):
     def __init__(self, file_server: 'FileServer', init_packet: RDTPacket, client_addr: Tuple[str, int]):
         self.file_server = file_server
         self.init_packet = init_packet
@@ -667,129 +667,6 @@ class GracefulKiller:
     def _handle_signal(self, signum, frame):
         self.logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.kill_now = True
-
-class DownloadRequest(AbstractRequest):
-    """
-    Represents an incoming download request
-    Provides simple interface for server to accept/reject and send files
-    Inherits from AbstractRequest to provide polymorphic interface
-
-    Server acts as sender in this case
-    """
-    
-    def __init__(self, sock: socket.socket, logger, init_packet: RDTPacket, client_addr: Tuple[str, int], file_server: 'FileServer' = None):
-        self.sock = sock
-        self.logger = logger
-        self.init_packet = init_packet
-        self.client_addr = client_addr
-        self.session = Session(sock, logger)
-        self._session_id = None  # cache session ID after handshake
-        self.file_server = file_server  # needed for accessing storage_dir
-
-    @property
-    def filename(self) -> str:
-        """The filename requested by the client"""
-        return self.init_packet.filename
-        
-    @property
-    def protocol(self) -> Protocol:
-        """The protocol requested by the client"""
-        return self.init_packet.protocol
-        
-    @property
-    def source_address(self) -> Tuple[str, int]:
-        """The client's address"""
-        return self.client_addr
-
-    def accept(self) -> bool:
-        """
-        Accept the download request and send the file
-        Constructs filepath internally and validates file existence
-        
-        Returns:
-            bool: True if file was sent successfully, False otherwise
-        """
-        # construct filepath from storage directory and requested filename
-        storage_dir = self.file_server.storage_dir
-        filepath = os.path.join(storage_dir, self.filename)
-
-        # validate file exists before accepting
-        if not os.path.exists(filepath):
-            self.logger.error(f"File not found: {filepath}")
-            self.reject("File not found")
-            return False
-
-        # perform handshake and send file
-        if self.session.accept_transfer(self.init_packet, self.client_addr):
-            self._session_id = self.session.session_id  # cache for future use
-            self.session.send_file(filepath)
-            return True
-        return False
-        
-    
-    def get_session_id(self) -> Optional[str]:
-        """
-        Get the session ID after acceptance
-        Useful for future concurrent server implementations
-        
-        Returns:
-            Session ID or None if not yet accepted
-        """
-        return self._session_id
-        
-    def reject(self, reason: str = "Download request rejected"):
-        """
-        Reject the download request
-        
-        Args:
-            reason: Reason for rejection to send to client
-        """
-        try:
-            self.session.reject_transfer(self.client_addr, reason)
-            self.logger.info(f"Rejected download request from {self.client_addr}: {reason}")
-        except Exception as e:
-            self.logger.error(f"Error rejecting download request: {e}")
-    
-    def get_file_info(self, filepath: str) -> Optional[Tuple[str, int]]:
-        """
-        Get file information for the requested file
-        
-        Args:
-            filepath: Path to the file
-            
-        Returns:
-            Tuple of (filename, file_size) or None if file doesn't exist
-        """
-        try:
-            if not self.file_exists(filepath):
-                return None
-            
-            filename = os.path.basename(filepath)
-            file_size = os.path.getsize(filepath)
-            return filename, file_size
-        except Exception as e:
-            self.logger.error(f"Error getting file info for {filepath}: {e}")
-            return None
-
-    @staticmethod
-    def extract_session_id(packet_data: bytes) -> Optional[str]:
-        """
-        Extract session ID from raw packet data without full parsing
-        Useful for future concurrent server implementations to route packets
-        
-        Args:
-            packet_data: Raw packet bytes
-            
-        Returns:
-            Session ID or None if packet doesn't contain one
-        """
-        try:
-            # Quick extraction without full validation
-            # Session ID is at a fixed offset in the packet structure
-            packet = RDTPacket.from_bytes(packet_data)
-            return packet.session_id
-        except Exception:
-            return None
 
 def setup_logging(verbose, quiet):
     log_format = '%(asctime)s - %(levelname)s - %(message)s'

@@ -10,7 +10,7 @@ from typing import List, Tuple, Dict
 from .base import (
     AbstractSender, AbstractReceiver, RDTPacket, PacketType, Protocol, PacketTimer,
     TIMEOUT, MAX_RETRIES, WINDOW_SIZE, MAX_WINDOW_SIZE, PACKET_SIZE, ACK_BUFFER_SIZE, DATA_BUFFER_SIZE,
-    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested, SEQ_NUM_MODULO
+    HANDSHAKE_TIMEOUT, FIN_TIMEOUT, is_shutdown_requested, SEQ_NUM_MODULO, FIRST_DATA_PACKET_TIMEOUT
 )
 
 
@@ -417,6 +417,20 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         
         return False
 
+    def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
+        """Check if sequence number is within window (handles wrap-around)"""
+        # Calculate window end with wrap-around
+        window_end = (base + window_size) % SEQ_NUM_MODULO
+
+        if base < window_end:
+            # Normal case: no wrap-around
+            # Window: [base, window_end)
+            return base <= seq_num < window_end
+        else:
+            # Wrap-around case
+            # Window: [base, 255] ∪ [0, window_end)
+            return seq_num >= base or seq_num < window_end
+
     def perform_handshake(self, filename: str, addr: Tuple[str, int]) -> bool:
         """Perform handshake with server and handle dedicated port"""
         # Create INIT packet
@@ -502,7 +516,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             self.logger.error(f"Failed to reconnect to dedicated port: {e}")
             return False
 
-    def receive_file_after_handshake(self) -> Tuple[bool, bytes]:
+    def receive_file_after_handshake(self, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file after handshake"""
         self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
         data, addr = self.socket.recvfrom(DATA_BUFFER_SIZE)  # use largest buffer size to support both protocols
@@ -520,18 +534,4 @@ class SelectiveRepeatReceiver(AbstractReceiver):
             return False, b''
 
         # delegate to subclass implementation
-        return self.receive_file_with_first_packet(first_packet, addr)  # TODO: do not separate first packet reception from the rest of the file !!!!
-
-    def _is_in_window(self, seq_num: int, base: int, window_size: int) -> bool:
-        """Check if sequence number is within window (handles wrap-around)"""
-        # Calculate window end with wrap-around
-        window_end = (base + window_size) % SEQ_NUM_MODULO
-
-        if base < window_end:
-            # Normal case: no wrap-around
-            # Window: [base, window_end)
-            return base <= seq_num < window_end
-        else:
-            # Wrap-around case
-            # Window: [base, 255] ∪ [0, window_end)
-            return seq_num >= base or seq_num < window_end
+        return self.receive_file_with_first_packet(first_packet, addr, data_queue)  # TODO: do not separate first packet reception from the rest of the file !!!!

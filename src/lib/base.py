@@ -469,7 +469,7 @@ class AbstractReceiver(ABC):
             return False, b''
 
     @abstractmethod
-    def receive_file_after_handshake(self):
+    def receive_file_after_handshake(self, data_queue: queue.Queue):
         pass
 
 

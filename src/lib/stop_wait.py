@@ -462,7 +462,7 @@ class RDTReceiver(AbstractReceiver):
             self.logger.error(f"Failed to reconnect to dedicated port: {e}")
             return False
 
-    def receive_file_after_handshake(self) -> Tuple[bool, bytes]:
+    def receive_file_after_handshake(self, data_queue: queue.Queue) -> Tuple[bool, bytes]:
         """Receive file after handshake"""
         self.socket.settimeout(FIRST_DATA_PACKET_TIMEOUT)
         data, addr = self.socket.recvfrom(SW_DATA_BUFFER_SIZE)
@@ -479,4 +479,4 @@ class RDTReceiver(AbstractReceiver):
             self.logger.error(f"Invalid session ID: {first_packet.session_id}")
             return False, b''
         self.logger.debug("Received first packet")
-        return self.receive_file_with_first_packet(first_packet, addr)  # TODO: do not separate first packet reception from the rest of the file !!!!
+        return self.receive_file_with_first_packet(first_packet, addr, data_queue)  # TODO: do not separate first packet reception from the rest of the file !!!!

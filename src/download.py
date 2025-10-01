@@ -137,8 +137,7 @@ def perform_download_handshake(socket_obj, server_addr, filename, protocol, logg
     socket_obj.settimeout(original_timeout)
     return None
 
-def receive_downloaded_file(socket_obj, server_addr, session_id, protocol, logger, data_queue: queue.Queue) -> Tuple[bool, bytes]:
-def receive_downloaded_file(receiver, logger):
+def receive_downloaded_file(receiver, logger, data_queue: queue.Queue) -> Tuple[bool, bytes]:
     """
     Receive file data from server after successful handshake
     
@@ -148,14 +147,10 @@ def receive_downloaded_file(receiver, logger):
     Returns:
         Tuple[bool, bytes]: (success, file_data)
     """
-    # Create appropriate receiver
-    receiver = create_receiver(protocol, socket_obj, logger)
-    logger.debug(f'Receiver created with protocol {protocol} for session {session_id}')
     try:
         logger.debug("Starting download...")
         # let receiver handle everything (first packet + rest)
-        success, file_data = receiver.receive_file(server_addr, session_id, data_queue)
-        success, file_data = receiver.receive_file_after_handshake()
+        success, file_data = receiver.receive_file_after_handshake(data_queue)
 
         return success, file_data
     except Exception as e:
@@ -252,11 +247,13 @@ def main():
         protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
         receiver = create_receiver(protocol, clientSocket, logger)
+        receiver.perform_handshake(args.name, server_addr)
+        logger.debug(f'Receiver created with protocol {protocol}')
 
         # Step 1: Perform download handshake
         session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
 
-        if not session_id:
+        if not receiver.perform_handshake(args.name, server_addr):
             logger.error("Failed to initiate download")
             sys.exit(1)
         
