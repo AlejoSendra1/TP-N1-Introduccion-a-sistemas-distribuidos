@@ -111,6 +111,7 @@ class ConcurrentTransferRequest(AbstractRequest):
 
             if not self.file_server.file_manager.can_start_upload(filepath):
                 self.reject("File already exists and is in use")
+                return False
 
             # create writer thread to save data to disk
             writer_thread = threading.Thread(
@@ -263,6 +264,7 @@ class ConcurrentTransferRequest(AbstractRequest):
             packet_type=PacketType.ERROR,
             data=reason.encode('utf-8')
         )
+        self.logger.debug(f"Rejecting File transfer")
         try:
             self.file_server.sock.sendto(error_packet.to_bytes(), self.client_addr)
         except Exception as e:
@@ -430,6 +432,7 @@ class ConcurrentDownloadRequest(AbstractRequest):
             packet_type=PacketType.ERROR,
             data=reason.encode('utf-8')
         )
+        self.logger.debug(f"Rejecting File download")
         try:
             self.file_server.sock.sendto(error_packet.to_bytes(), self.client_addr)
         except Exception as e:
