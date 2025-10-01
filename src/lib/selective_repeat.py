@@ -306,7 +306,7 @@ class SelectiveRepeatReceiver(AbstractReceiver):
         self.logger.info("Starting file reception with Selective Repeat")
         
         # store the client address from first packet for validation
-        if not self.dest_addr[0]:
+        if not self.dest_addr:
             self.dest_addr = addr
         client_host = self.dest_addr[0]
         

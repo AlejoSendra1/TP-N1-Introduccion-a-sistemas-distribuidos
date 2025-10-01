@@ -63,132 +63,6 @@ class SessionInfo:
         self.created_at = time.time()
         self.connected = False  # True when dedicated thread starts for dedicated client port
 
-class Session:
-    """
-    Manages a complete RDT file transfer session
-    Handles handshake and delegates to appropriate receiver
-    """
-    
-    def __init__(self, sock: socket.socket, logger):
-        self.sock = sock
-        self.logger = logger
-        self.session_id = None
-        self.client_addr = None
-        self.protocol = None
-        self.filename = None
-        self.file_size = None
-        
-    def accept_transfer(self, init_packet: RDTPacket, client_addr: Tuple[str, int]) -> bool:
-        """
-        Accept an incoming transfer request
-        Performs handshake and prepares for transfer
-        
-        Returns:
-            bool: True if handshake successful
-        """
-        # Validate INIT packet
-        if init_packet.packet_type != PacketType.INIT:
-            self.logger.error(f"Invalid packet type for session start: {init_packet.packet_type}")
-            return False
-            
-        # Store session information
-        self.client_addr = client_addr
-        self.protocol = init_packet.protocol
-        self.filename = init_packet.filename
-        self.file_size = init_packet.file_size
-        # generate session ID as single byte (1-255, 0 reserved for INIT)
-        self.session_id = str(random.randint(1, SEQ_NUM_MODULO - 1))  # TODO: use a better session ID generation method, to avoid collisions
-        
-        self.logger.info(f"Accepting transfer for {self.filename} using {self.protocol.value}")
-        
-        # Send ACCEPT with session ID
-        accept = RDTPacket(
-            packet_type=PacketType.ACCEPT,
-            session_id=self.session_id
-        )
-        
-        try:
-            self.sock.sendto(accept.to_bytes(), client_addr)
-            self.logger.debug(f"Sent ACCEPT with session ID: {self.session_id}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to send ACCEPT for session {self.session_id}: {e}")
-            return False
-
-    def receive_file(self, data_queue: queue.Queue) -> Tuple[bool, bytes]:
-        """
-        Receive the file after handshake
-        
-        Args:
-            data_queue: Queue to store received data chunks
-
-        Returns:
-            Tuple[bool, bytes]: (success, file_data)
-        """
-        if not self.session_id:
-            self.logger.error("No active session")
-            return False, b''
-            
-        receiver = create_receiver(self.protocol, self.sock, self.logger)
-        
-        try:
-            # let receiver handle everything (first packet + rest)
-            success, file_data = receiver.receive_file(self.client_addr, self.session_id, data_queue)
-            
-            if success:
-                # send FIN ACK
-                self._handle_fin()
-            
-            return success, file_data
-            
-        except Exception as e:
-            self.logger.error(f"Error receiving file in session {self.session_id}: {e}")
-            return False, b''
-    
-    def _handle_fin(self):
-        """Handle FIN packet and send FIN ACK"""
-        try:
-            # send FIN ACK
-            # FIN packet received and validated by concrete receiver
-            # here we only have to send FIN ACK
-            fin_ack = RDTPacket(
-                packet_type=PacketType.ACK,
-                session_id=self.session_id
-            )
-            self.sock.sendto(fin_ack.to_bytes(), self.client_addr) # TODO: create send FIN ACK method in concrete receiver
-            self.logger.info(f"Session {self.session_id} closed with FIN/FIN-ACK")
-            
-            # clean up session after successful FIN ACK
-            self.session_id = None
-            self.client_addr = None
-            self.protocol = None
-            self.filename = None
-            self.file_size = None
-                
-        except Exception as e:
-            self.logger.error(f"Error handling FIN in session {self.session_id}: {e}")
-
-    def reject_transfer(self, client_addr: Tuple[str, int], reason: str = "Transfer rejected"):
-        """Send rejection/error response"""
-        error = RDTPacket(
-            packet_type=PacketType.ERROR,
-            data=reason.encode()
-        )
-        try:
-            self.sock.sendto(error.to_bytes(), client_addr)
-        except Exception as e:
-            self.logger.error(f"Failed to send rejection for session {self.session_id}: {e}")
-
-    def send_file(self,source):
-        sender = create_sender(self.protocol , self.sock, self.client_addr, self.logger)
-        sender.session_id = self.session_id
-        if sender.send_file(source, self.filename):
-            self.logger.info("File uploaded successfully")
-
-        else:
-            self.logger.error("File upload failed")
-
-
 
 class ConcurrentTransferRequest(AbstractRequest):
     """
@@ -433,6 +307,11 @@ class ConcurrentDownloadRequest(AbstractRequest):
         Returns:
             True if file was sent successfully, False otherwise
         """
+        storage_dir = self.file_server.storage_dir
+        filepath = os.path.join(storage_dir, self.filename)
+        if not os.path.exists(filepath):
+            return False
+
         try:
             # create dedicated socket and port
             dedicated_sock, dedicated_port = self.file_server._create_dedicated_socket()
@@ -441,6 +320,8 @@ class ConcurrentDownloadRequest(AbstractRequest):
             # generate session ID
             session_id = str(random.randint(1, 255))
             self._session_id = session_id
+
+
 
             # send ACCEPT with dedicated port in payload
             accept_packet = RDTPacket(
@@ -538,6 +419,7 @@ class FileServer:
         self.sock = sock
         self.logger = logger
         self.max_concurrent = max_concurrent
+        self.storage_dir = None
         
         # for concurrent session management
         self.active_sessions: Dict[str, SessionInfo] = {}
@@ -766,38 +648,6 @@ def main():
                     logger.info(f"Request handled successfully")
                 else:
                     logger.error("Request failed")
-                # INPROGRESS: DOWNLOAD IMPLEMENTATION
-                # handle different request types:
-                if isinstance(request, ConcurrentDownloadRequest):
-                    logger.info(f"Download request from {request.source_address}: {request.filename}")
-                    # handle download request
-
-                    filepath = os.path.join(args.storage, request.filename)
-                    if os.path.exists(filepath):
-                        success = request.accept()  # send file to client
-                        if success:
-                            logger.info(f"Download accepted and started in background thread")
-                        else:
-                            logger.error("Download failed to start")
-
-
-                    else:
-                        logger.error(f"File not found: {filepath}")
-                        request.reject("File not found")
-                elif isinstance(request, ConcurrentTransferRequest):
-                    logger.info(f"Transfer request from {request.source_address}: {request.filename}")
-
-                    # starts a background thread and returns immediately
-                    result = request.accept()
-
-                    if result:
-                        success, _ = result
-                        if success:
-                            logger.info(f"Transfer accepted and started in background thread")
-                        else:
-                            logger.error("Transfer failed to start")
-                    else:
-                        logger.error("Handshake failed")
 
     except KeyboardInterrupt as e:
         logger.info("Keyboard interrupt received")

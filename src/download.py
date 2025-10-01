@@ -247,11 +247,10 @@ def main():
         protocol = Protocol.from_string(args.protocol)
         server_addr = (args.host, args.port)
         receiver = create_receiver(protocol, clientSocket, logger)
-        receiver.perform_handshake(args.name, server_addr)
         logger.debug(f'Receiver created with protocol {protocol}')
 
         # Step 1: Perform download handshake
-        session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
+    #    session_id = perform_download_handshake(clientSocket, server_addr, args.name, protocol, logger)
 
         if not receiver.perform_handshake(args.name, server_addr):
             logger.error("Failed to initiate download")
@@ -261,7 +260,7 @@ def main():
         # Step 2: Receive file data
         thread_writer = threading.Thread(target=write_to_file, args=(data_queue, args.dst, logger))
         thread_writer.start()
-        success, file_data = receive_downloaded_file(clientSocket, server_addr, session_id, protocol, logger, data_queue)
+        success, file_data = receive_downloaded_file(receiver, logger, data_queue)
 
         if not success:
             logger.error("Failed to download file")
