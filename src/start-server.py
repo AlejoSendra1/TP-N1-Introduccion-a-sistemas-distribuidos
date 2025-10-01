@@ -14,6 +14,10 @@ from lib.base import ACK_BUFFER_SIZE, HANDSHAKE_TIMEOUT, MAX_RETRIES
 from lib.factory import create_sender
 from lib.stats.stats_structs import ReceiverStats, SenderStats
 
+FREE = 0
+READING = 1
+WRITING = 2
+
 class AbstractRequest(ABC):
     """
     Abstract base class for all transfer requests
@@ -101,7 +105,12 @@ class ConcurrentTransferRequest(AbstractRequest):
 
             # construct filepath for saving the file
             storage_dir = self.file_server.storage_dir
-            filepath = os.path.join(storage_dir, self.filename)
+
+            safe_filename = os.path.basename(self.filename.strip())
+            filepath = os.path.join(storage_dir, safe_filename)
+
+            if not self.file_server.file_manager.can_start_upload(filepath):
+                self.reject("File already exists and is in use")
 
             # create writer thread to save data to disk
             writer_thread = threading.Thread(
@@ -223,6 +232,10 @@ class ConcurrentTransferRequest(AbstractRequest):
             self.logger.error(f"Error in dedicated transfer thread {session_id}: {e}")
         finally:
             # Cleanup session
+            storage_dir = self.file_server.storage_dir
+            safe_filename = os.path.basename(self.filename.strip())
+            filepath = os.path.join(storage_dir, safe_filename)
+            self.file_server.file_manager.release_upload(filepath)
             self.file_server.remove_session(session_id)
             dedicated_sock.close()
             self.logger.info(f"Session {session_id} cleaned up")
@@ -283,6 +296,10 @@ class ConcurrentDownloadRequest(AbstractRequest):
         return self.client_addr
 
     def _handle_dedicated_request(self, dedicated_sock: socket.socket, session_id: str):
+        storage_dir = self.file_server.storage_dir
+
+        safe_filename = os.path.basename(self.filename.strip())
+        filepath = os.path.join(storage_dir, safe_filename)
         try:
             self.logger.info(f"Thread started for session {session_id} on port {self._dedicated_port}")
 
@@ -297,12 +314,6 @@ class ConcurrentDownloadRequest(AbstractRequest):
             sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger, stats=stats)
             sender.session_id = session_id
             self.logger.debug(f"Created sender for session {session_id} for client with address: {self.client_addr}")
-
-            storage_dir = getattr(self.file_server, 'storage_dir', 'storage')
-
-            safe_filename = os.path.basename(self.filename.strip())
-            filepath = os.path.join(storage_dir, safe_filename)
-
 
             # the client will send DATA packets directly to this dedicated port
             success = sender.send_file(filepath, self.filename)
@@ -319,6 +330,7 @@ class ConcurrentDownloadRequest(AbstractRequest):
         finally:
             # Cleanup session
             self.file_server.remove_session(session_id)
+            self.file_server.file_manager.release_download(filepath)
             dedicated_sock.close()
             self.logger.info(f"Session {session_id} cleaned up")
 
@@ -329,8 +341,14 @@ class ConcurrentDownloadRequest(AbstractRequest):
             True if file was sent successfully, False otherwise
         """
         storage_dir = self.file_server.storage_dir
-        filepath = os.path.join(storage_dir, self.filename)
+
+        safe_filename = os.path.basename(self.filename.strip())
+        filepath = os.path.join(storage_dir, safe_filename)
         if not os.path.exists(filepath):
+            self.reject("File doesnt exist")
+            return False
+        elif not self.file_server.file_manager.can_start_download(filepath):
+            self.reject("File in use")
             return False
 
         try:
@@ -440,6 +458,45 @@ class ConcurrentDownloadRequest(AbstractRequest):
             return None
 
 
+class FileAccessManager:
+    def __init__(self):
+        # { filename: (state, readers) }
+        # state = FREE, READING o WRITING
+        # readers = number of threads currently reading file
+        self.files = {}
+        self.lock = threading.Lock()
+
+    def can_start_download(self, filename: str) -> bool:
+        with self.lock:
+            state, readers = self.files.get(filename, (FREE, 0))
+            if state == WRITING:
+                return False
+            self.files[filename] = (READING, readers + 1)
+            return True
+
+    def can_start_upload(self, filename: str) -> bool:
+        with self.lock:
+            state, readers = self.files.get(filename, (FREE, 0))
+            if state != FREE:
+                return False
+            self.files[filename] = (WRITING, 0)
+            return True
+
+    def release_download(self, filename: str):
+        with self.lock:
+            if filename in self.files:
+                state, readers = self.files[filename]
+                readers -= 1
+                if readers <= 0:
+                    self.files[filename] = (FREE, 0)
+                else:
+                    self.files[filename] = (READING, readers)
+
+    def release_upload(self, filename: str):
+        with self.lock:
+            if filename in self.files:
+                self.files[filename] = (FREE, 0)
+
 
 class FileServer:
     """
@@ -456,6 +513,9 @@ class FileServer:
         # for concurrent session management
         self.active_sessions: Dict[str, SessionInfo] = {}
         self.sessions_lock = threading.Lock()
+
+        # file management
+        self.file_manager = FileAccessManager()
         
         # server host for binding dedicated sockets
         self.host = sock.getsockname()[0]
