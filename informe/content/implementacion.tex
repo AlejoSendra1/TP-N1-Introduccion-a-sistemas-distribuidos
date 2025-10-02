@@ -1,4 +1,3 @@
-
 \subsection{Arquitectura General}
 La implementación se dividió en varios módulos con responsabilidades bien definidas, siguiendo principios de diseño orientado a objetos.
 El sistema está compuesto por tres componentes principales:
@@ -112,7 +111,7 @@ En el protocolo implementado, cada paquete tiene un tipo específico que determi
     \centering
     \includegraphics[width=1\linewidth]{images/UPLOAD_HANDSHAKE}
     \caption{Handshake inicial para subida de archivo}
-    \label{fig:placeholder}
+    \label{fig:upload_handshake}
 \end{figure}
 
 \subsubsection{Handshake (download)}
@@ -121,7 +120,7 @@ En el protocolo implementado, cada paquete tiene un tipo específico que determi
     \centering
     \includegraphics[width=1\linewidth]{images/DOWNLOAD_HANDSHAKE}
     \caption{Handshake inicial para descarga de archivo}
-    \label{fig:placeholder}
+    \label{fig:download_handshake}
 \end{figure}
 
 \subsubsection{Cierre de conexion}
@@ -130,7 +129,7 @@ En el protocolo implementado, cada paquete tiene un tipo específico que determi
     \centering
     \includegraphics[width=1\linewidth]{images/FIN}
     \caption{Subida / Descarga de archivo con Selective Repeat}
-    \label{fig:placeholder}
+    \label{fig:fin_transfer}
 \end{figure}
 
 \subsubsection{Subida / Descarga de archivo}
@@ -139,14 +138,14 @@ En el caso de una subida de archivo, el emisor es el Cliente y el receptor el Se
     \centering
     \includegraphics[width=1\linewidth]{images/UPLOAD_DOWNLOAD}
     \caption{Subida / Descarga de archivo con Stop \& Wait}
-    \label{fig:placeholder}
+    \label{fig:upload_download_sw}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1\linewidth]{images/UPLOAD_DOWNLOAD_SR}
+    \includegraphics[height=1\textheight]{images/UPLOAD_DOWNLOAD_SR}
     \caption{Subida / Descarga de archivo con Selective Repeat}
-    \label{fig:placeholder}
+    \label{fig:upload_download_sr}
 \end{figure}
 
 \subsubsection{Manejo de errores}
@@ -156,10 +155,8 @@ En el caso de una subida de archivo, el emisor es el Cliente y el receptor el Se
     \centering
     \includegraphics[width=1\linewidth]{images/RETRANSMISION}
     \caption{Retramision de paquetes por timeout}
-    \label{fig:placeholder}
+    \label{fig:retransmision}
 \end{figure}
-
-
 
 
 
@@ -263,44 +260,47 @@ A continuación se describe el ciclo de vida completo de una sesión en el servi
 
 \begin{figure}[H]
 \centering
+\small
+\begin{minipage}{0.9\textwidth}
 \begin{verbatim}
-1. Cliente envía UPLOAD_INIT/DOWNLOAD_INIT al puerto 49153
-   │
-   ├──► Thread Principal recibe solicitud
-   │    │
-   │    ├──► Adquiere lock sobre sessions_lock
-   │    ├──► Verifica capacidad (< 10 sesiones)
-   │    └──► Libera lock
-   │
-   ├──► Si capacidad disponible:
-   │    │
-   │    ├──► Genera session_id único (con lock)
-   │    ├──► Crea socket dedicado en puerto N
-   │    ├──► Envía ACCEPT(session_id, puerto N)
-   │    │
-   │    ├──► Crea thread dedicado T
-   │    ├──► Registra sesión en active_sessions (con lock)
-   │    └──► Inicia thread: T.start()
-   │
-   └──► Si capacidad completa:
-        └──► Envía ERROR("Server at capacity")
+1. Cliente envia UPLOAD_INIT/DOWNLOAD_INIT al puerto 49153
+   |
+   +---> Thread Principal recibe solicitud
+   |    |
+   |    +---> Adquiere lock sobre sessions_lock
+   |    +---> Verifica capacidad (< 10 sesiones)
+   |    +---> Libera lock
+   |
+   +---> Si capacidad disponible:
+   |    |
+   |    +---> Genera session_id unico (con lock)
+   |    +---> Crea socket dedicado en puerto N
+   |    +---> Envia ACCEPT(session_id, puerto N)
+   |    |
+   |    +---> Crea thread dedicado T
+   |    +---> Registra sesion en active_sessions (con lock)
+   |    +---> Inicia thread: T.start()
+   |
+   +---> Si capacidad completa:
+        +---> Envia ERROR("Server at capacity")
 
 2. Thread Dedicado T ejecuta:
-   │
-   ├──► Espera ACCEPT_ACK en socket dedicado
-   ├──► Crea instancia de protocolo (Stop&Wait o Selective Repeat)
-   ├──► Ejecuta transferencia (bloqueante solo para este thread)
-   ├──► Guarda archivo en disco
-   │
-   └──► Finally (siempre ejecuta):
-        ├──► Adquiere lock sobre sessions_lock
-        ├──► Elimina sesión de active_sessions
-        ├──► Libera lock
-        └──► Cierra socket dedicado
+   |
+   +---> Espera ACCEPT_ACK en socket dedicado
+   +---> Crea instancia de protocolo (Stop&Wait o Selective Repeat)
+   +---> Ejecuta transferencia (bloqueante solo para este thread)
+   +---> Guarda archivo en disco
+   |
+   +---> Finally (siempre ejecuta):
+        +---> Adquiere lock sobre sessions_lock
+        +---> Elimina sesion de active_sessions
+        +---> Libera lock
+        +---> Cierra socket dedicado
 
-3. Thread Principal continúa:
-   └──► Loop: Espera próxima solicitud (no bloqueado por T)
+3. Thread Principal continua:
+   +---> Loop: Espera proxima solicitud (no bloqueado por T)
 \end{verbatim}
+\end{minipage}
 \caption{Ciclo de vida de una sesión concurrente}
 \end{figure}
 
