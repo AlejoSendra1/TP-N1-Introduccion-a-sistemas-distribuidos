@@ -16,19 +16,24 @@ from .stop_wait import RDTSender, RDTReceiver
 from .selective_repeat import SelectiveRepeatSender, SelectiveRepeatReceiver
 
 
-def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[str, int], logger) -> AbstractSender:
+def create_sender(
+    protocol: Protocol,
+    socket: socket.socket,
+    dest_addr: Tuple[str, int],
+    logger,
+) -> AbstractSender:
     """
     Factory method to create appropriate sender based on protocol
-    
+
     Args:
         protocol: The RDT protocol to use (STOP_WAIT or SELECTIVE_REPEAT)
         socket: UDP socket for communication
         dest_addr: Destination address (host, port)
         logger: Logger instance
-        
+
     Returns:
         AbstractSender: Concrete sender implementation
-        
+
     Raises:
         ValueError: If protocol is not supported
     """
@@ -38,23 +43,25 @@ def create_sender(protocol: Protocol, socket: socket.socket, dest_addr: Tuple[st
         return SelectiveRepeatSender(socket, dest_addr, logger)
 
 
-def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> AbstractReceiver:
+def create_receiver(
+    protocol: Protocol, socket: socket.socket, logger
+) -> AbstractReceiver:
     """
     Factory method to create appropriate receiver based on protocol
-    
+
     Args:
         protocol: The RDT protocol to use (STOP_WAIT or SELECTIVE_REPEAT)
         socket: UDP socket for communication
         logger: Logger instance
-        
+
     Returns:
         AbstractReceiver: Concrete receiver implementation
-        
+
     Raises:
         ValueError: If protocol is not supported
     """
     if protocol == Protocol.STOP_WAIT:
-        return RDTReceiver(socket, logger) # TODO: rename to StopWaitReceiver
+        return RDTReceiver(socket, logger)  # TODO: rename to StopWaitReceiver
     elif protocol == Protocol.SELECTIVE_REPEAT:
         return SelectiveRepeatReceiver(socket, logger)
     else:
@@ -62,7 +69,9 @@ def create_receiver(protocol: Protocol, socket: socket.socket, logger) -> Abstra
 
 
 # Convenience functions for common use cases
-def create_stop_wait_sender(socket: socket.socket, dest_addr: Tuple[str, int], logger) -> RDTSender:
+def create_stop_wait_sender(
+    socket: socket.socket, dest_addr: Tuple[str, int], logger
+) -> RDTSender:
     """Create a Stop & Wait sender"""
     return RDTSender(socket, dest_addr, logger)
 
@@ -72,12 +81,15 @@ def create_stop_wait_receiver(socket: socket.socket, logger) -> RDTReceiver:
     return RDTReceiver(socket, logger)
 
 
-def create_selective_repeat_sender(socket: socket.socket, dest_addr: Tuple[str, int], logger) -> SelectiveRepeatSender:
+def create_selective_repeat_sender(
+    socket: socket.socket, dest_addr: Tuple[str, int], logger
+) -> SelectiveRepeatSender:
     """Create a Selective Repeat sender"""
     return SelectiveRepeatSender(socket, dest_addr, logger)
 
 
-def create_selective_repeat_receiver(socket: socket.socket, logger) -> SelectiveRepeatReceiver:
+def create_selective_repeat_receiver(
+    socket: socket.socket, logger
+) -> SelectiveRepeatReceiver:
     """Create a Selective Repeat receiver"""
     return SelectiveRepeatReceiver(socket, logger)
-
