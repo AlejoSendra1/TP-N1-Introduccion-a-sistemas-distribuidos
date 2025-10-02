@@ -33,7 +33,142 @@
 
     \item \textbf{Detalle el protocolo de aplicación desarrollado en este trabajo.}
     
-    % TODO: Completar esta sección con la descripción del protocolo desarrollado
+    El protocolo de aplicación desarrollado es un protocolo de transferencia de archivos bidireccional (upload y download) que opera sobre UDP e implementa confiabilidad mediante mecanismos de RDT (Reliable Data Transfer). El protocolo está diseñado para soportar transferencias concurrentes y ofrece dos estrategias de recuperación de errores: Stop \& Wait y Selective Repeat.
+    
+    \subsection*{Características principales del protocolo}
+    
+    \textbf{Modelo de comunicación:}
+    \begin{itemize}
+        \item Arquitectura cliente-servidor con roles intercambiables (el servidor puede actuar como emisor en operaciones de descarga)
+        \item Protocolo basado en sesiones con identificadores únicos
+        \item Cada transferencia se maneja en un puerto UDP dedicado para permitir concurrencia
+        \item Handshake inicial para negociar parámetros de la transferencia
+        \item Cierre graceful con confirmación bidireccional
+    \end{itemize}
+    
+    \textbf{Formato de mensajes:}
+    
+    Todos los mensajes del protocolo siguen una estructura uniforme de header fijo de 14 bytes seguido de un payload de longitud variable:
+    
+    \begin{itemize}
+        \item \texttt{seq\_num} (1 byte): Número de secuencia para ordenamiento de paquetes DATA y detección de duplicados
+        \item \texttt{checksum} (1 byte): Suma de verificación para detección de errores de transmisión
+        \item \texttt{ack\_num} (1 byte): Número de reconocimiento en paquetes ACK
+        \item \texttt{payload\_length} (4 bytes): Longitud del payload en bytes
+        \item \texttt{file\_size} (4 bytes): Tamaño total del archivo (utilizado en INIT)
+        \item \texttt{packet\_type} (1 byte): Tipo de paquete (DATA, ACK, INIT, ACCEPT, FIN, ERROR)
+        \item \texttt{protocol} (1 byte): Protocolo de recuperación de errores seleccionado (1=Stop\&Wait, 2=Selective Repeat)
+        \item \texttt{session\_id} (1 byte): Identificador único de sesión asignado por el servidor (1-255)
+    \end{itemize}
+    
+    \subsection*{Flujo del protocolo}
+    
+    \textbf{1. Establecimiento de conexión (Handshake):}
+    
+    El cliente inicia la transferencia enviando un paquete INIT al puerto principal del servidor (49153) que contiene:
+    \begin{itemize}
+        \item Nombre del archivo en el payload
+        \item Tamaño del archivo (\texttt{file\_size > 0} para upload, \texttt{file\_size = 0} para download)
+        \item Protocolo de recuperación de errores deseado (\texttt{protocol})
+        \item \texttt{session\_id = 0} (aún no asignado)
+    \end{itemize}
+    
+    El servidor, al recibir el INIT:
+    \begin{itemize}
+        \item Valida la solicitud (existencia del archivo en caso de download, capacidad disponible)
+        \item Genera un \texttt{session\_id} único (1-255)
+        \item Crea un socket UDP dedicado en un puerto dinámico
+        \item Responde con un paquete ACCEPT que contiene el \texttt{session\_id} asignado y el puerto dedicado en el payload
+        \item Crea un thread dedicado para manejar la transferencia
+    \end{itemize}
+    
+    El cliente, al recibir el ACCEPT:
+    \begin{itemize}
+        \item Extrae el \texttt{session\_id} y el puerto dedicado
+        \item Reconecta su socket al puerto dedicado del servidor
+        \item Procede a la fase de transferencia de datos
+    \end{itemize}
+    
+    \textbf{2. Transferencia de datos:}
+    
+    La transferencia de datos utiliza paquetes DATA con payload de hasta 4096 bytes (8192 bytes en Stop \& Wait para optimizar throughput). El emisor fragmenta el archivo y transmite los fragmentos según el protocolo seleccionado:
+    
+    \begin{itemize}
+        \item \textbf{Stop \& Wait}: Envía un paquete y espera su ACK antes de enviar el siguiente. Usa números de secuencia alternantes (0, 1) para detección de duplicados.
+        
+        \item \textbf{Selective Repeat}: Mantiene una ventana deslizante de hasta 20 paquetes en tránsito simultáneamente. Los ACKs son selectivos (confirman paquetes individuales) y solo se retransmiten los paquetes cuyo timer expire.
+    \end{itemize}
+    
+    El receptor:
+    \begin{itemize}
+        \item Verifica el checksum de cada paquete recibido
+        \item En Stop \& Wait: Acepta solo el paquete con el número de secuencia esperado, descarta duplicados
+        \item En Selective Repeat: Bufferea paquetes fuera de orden y los entrega en secuencia cuando es posible
+        \item Envía ACKs por cada paquete recibido correctamente
+        \item Escribe los datos recibidos a disco mediante un thread dedicado (writer thread)
+    \end{itemize}
+    
+    \textbf{3. Cierre de conexión:}
+    
+    Una vez transmitidos todos los paquetes DATA, el emisor:
+    \begin{itemize}
+        \item Envía un paquete FIN con el \texttt{session\_id} de la sesión
+        \item Espera un paquete FIN\_ACK del receptor con timeout y retransmisión
+        \item Mantiene el estado para reenviar FIN\_ACK ante duplicados del FIN (mecanismo para evitar cierre prematuro)
+    \end{itemize}
+    
+    El receptor:
+    \begin{itemize}
+        \item Al recibir FIN, confirma que todos los datos fueron escritos
+        \item Envía FIN\_ACK y permanece escuchando por posibles retransmisiones del FIN durante un período de timeout
+        \item Cierra el socket y libera recursos al expirar el timeout
+    \end{itemize}
+    
+    \subsection*{Mecanismos de confiabilidad}
+    
+    El protocolo implementa varios mecanismos para garantizar transferencia confiable sobre UDP:
+    
+    \textbf{Detección de errores:}
+    \begin{itemize}
+        \item Checksum en cada paquete (suma de todos los bytes del header y payload)
+        \item Validación de checksums en recepción, descartando paquetes corruptos
+    \end{itemize}
+    
+    \textbf{Recuperación de pérdidas:}
+    \begin{itemize}
+        \item Timeouts configurables por paquete (200ms para Selective Repeat, 50ms para Stop \& Wait)
+        \item Retransmisión automática al expirar el timeout
+        \item Límite máximo de reintentos (20 intentos) antes de abortar la transferencia
+    \end{itemize}
+    
+    \textbf{Control de duplicados y reordenamiento:}
+    \begin{itemize}
+        \item Números de secuencia con wrap-around en 256 (1 byte)
+        \item Stop \& Wait: Descarta paquetes duplicados basándose en el número de secuencia esperado
+        \item Selective Repeat: Buffers para reordenar paquetes y entrega en secuencia
+    \end{itemize}
+    
+    \textbf{Manejo de errores a nivel de aplicación:}
+    \begin{itemize}
+        \item Paquetes ERROR para comunicar condiciones excepcionales (archivo no encontrado, servidor saturado)
+        \item Validación de sesiones (session\_id y dirección del cliente)
+        \item Control de capacidad del servidor (máximo 10 transferencias concurrentes)
+        \item Timeouts diferenciados según la fase (handshake: 1s, datos: 50-200ms, FIN: 1s)
+    \end{itemize}
+    
+    \subsection*{Soporte para concurrencia}
+    
+    El protocolo fue diseñado para soportar múltiples transferencias simultáneas:
+    
+    \begin{itemize}
+        \item \textbf{Identificación de sesiones}: Cada transferencia recibe un \texttt{session\_id} único que identifica todos sus paquetes
+        \item \textbf{Aislamiento por puerto}: Cada sesión opera en un puerto UDP dedicado, eliminando la necesidad de demultiplexar en el servidor
+        \item \textbf{Estado independiente}: Cada thread de transferencia mantiene su propio estado (ventanas, buffers, timers) sin compartir recursos
+        \item \textbf{Sincronización mínima}: Solo el diccionario de sesiones activas requiere sincronización mediante locks
+    \end{itemize}
+    
+    Este diseño permite que el servidor procese transferencias de distintos clientes con diferentes protocolos (Stop \& Wait y Selective Repeat) simultáneamente sin interferencias.
+    
     
     \item \textbf{La capa de transporte del stack TCP/IP ofrece dos protocolos: TCP y UDP. ¿Qué servicios proveen dichos protocolos? ¿Cuáles son sus características? ¿Cuándo es apropiado utilizar cada uno?}
     

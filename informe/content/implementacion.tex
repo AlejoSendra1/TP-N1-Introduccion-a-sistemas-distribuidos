@@ -333,10 +333,326 @@ A continuación se describe el ciclo de vida completo de una sesión en el servi
 \caption{Ciclo de vida de una sesión concurrente}
 \end{figure}
 
-
-
-
-% PENDIENTE AGREGAR SECCIONES QUE EXPLIQUEN EN CONCRETO LA IMPLE DEL STOP & WAIT Y EL SELECTIVE REPEAT
-
 \subsection{Stop \& Wait}
+
+Stop \& Wait es el protocolo RDT más simple implementado en este trabajo. Su funcionamiento se basa en el envío secuencial de paquetes: el emisor transmite un paquete y espera la confirmación (ACK) antes de enviar el siguiente.
+
+\subsubsection{Principio de funcionamiento}
+
+El protocolo utiliza números de secuencia alternantes (0 y 1) para distinguir entre paquetes consecutivos y detectar duplicados. El emisor mantiene una variable \texttt{seq\_num} que alterna entre 0 y 1 con cada paquete enviado exitosamente, mientras que el receptor mantiene una variable \texttt{expected\_seq} que indica el número de secuencia del próximo paquete esperado.
+
+El flujo básico es:
+\begin{enumerate}
+    \item Emisor envía paquete con \texttt{seq\_num = n}
+    \item Emisor inicia timer y espera ACK
+    \item Receptor recibe paquete, verifica checksum y número de secuencia
+    \item Si el paquete es correcto y tiene el \texttt{seq\_num} esperado:
+    \begin{itemize}
+        \item Receptor acepta los datos
+        \item Receptor envía ACK con \texttt{ack\_num = n}
+        \item Receptor incrementa \texttt{expected\_seq}
+    \end{itemize}
+    \item Si el paquete es duplicado o corrupto:
+    \begin{itemize}
+        \item Receptor descarta los datos
+        \item Receptor envía ACK del paquete anterior (ACK duplicado)
+    \end{itemize}
+    \item Emisor recibe ACK y avanza al siguiente paquete
+    \item Si timer expira antes de recibir ACK, el emisor retransmite
+\end{enumerate}
+
+\subsubsection{Implementación del emisor}
+
+La clase \texttt{RDTSender} en \texttt{stop\_wait.py} implementa el emisor del protocolo Stop \& Wait. Sus componentes principales son:
+
+\textbf{Variables de estado:}
+\begin{itemize}
+    \item \texttt{seq\_num}: Número de secuencia actual (0 o 1)
+    \item \texttt{session\_id}: Identificador de sesión asignado por el servidor
+    \item \texttt{socket}: Socket UDP para transmisión
+    \item \texttt{dest\_addr}: Dirección y puerto del receptor
+\end{itemize}
+
+\textbf{Preparación de paquetes:}
+
+El método \texttt{\_prepare\_packets()} lee el archivo fuente y lo fragmenta en paquetes DATA. Para optimizar el throughput en Stop \& Wait, se utiliza un tamaño de paquete mayor (8192 bytes) en comparación con Selective Repeat (4096 bytes), reduciendo así el número total de paquetes a transmitir y, por ende, el overhead del protocolo.
+
+\textbf{Envío confiable de paquetes:}
+
+El método \texttt{\_send\_packet\_reliable()} implementa el núcleo del protocolo. Para cada paquete:
+
+\begin{enumerate}
+    \item Se envía el paquete al receptor mediante \texttt{socket.sendto()}
+    \item Se inicia un timer implícito configurando \texttt{socket.settimeout(SW\_TIMEOUT)} con un timeout de 50ms
+    \item Se bloquea esperando el ACK con \texttt{socket.recvfrom()}
+    \item Si se recibe un ACK válido (tipo ACK, \texttt{ack\_num} correcto, checksum válido), se retorna éxito
+    \item Si el timeout expira sin recibir ACK, se reintenta hasta un máximo de 20 intentos
+    \item Si se recibe un ACK inválido o duplicado, se reintenta inmediatamente
+\end{enumerate}
+
+La retransmisión automática por timeout es el mecanismo principal de recuperación ante pérdida de paquetes o ACKs. El timeout de 50ms fue ajustado empíricamente para balancear entre latencia y robustez ante pérdidas.
+
+\textbf{Cierre de sesión:}
+
+El método \texttt{\_send\_fin()} maneja el cierre graceful de la conexión enviando un paquete FIN y esperando el FIN\_ACK correspondiente. Utiliza un timeout mayor (1 segundo) y reintenta hasta 20 veces antes de abortar. Este handshake de cierre garantiza que el receptor haya procesado todos los datos antes de liberar recursos.
+
+\subsubsection{Implementación del receptor}
+
+La clase \texttt{RDTReceiver} en \texttt{stop\_wait.py} implementa el receptor del protocolo. Su responsabilidad es recibir paquetes en orden, filtrar duplicados y confirmar recepciones.
+
+\textbf{Variables de estado:}
+\begin{itemize}
+    \item \texttt{expected\_seq}: Número de secuencia esperado (0 o 1)
+    \item \texttt{socket}: Socket UDP para recepción
+\end{itemize}
+
+\textbf{Procesamiento de paquetes:}
+
+El método \texttt{receive\_file\_with\_first\_packet()} maneja el primer paquete DATA (ya recibido por la capa de sesión) y delega al método \texttt{\_continue\_receiving()} para el resto de la transferencia. 
+
+Para cada paquete recibido:
+\begin{enumerate}
+    \item Se verifica el checksum usando \texttt{packet.verify\_checksum()}
+    \item Si el checksum es inválido, se descarta el paquete
+    \item Se compara \texttt{packet.seq\_num} con \texttt{expected\_seq}
+    \item Si coinciden:
+    \begin{itemize}
+        \item Se aceptan los datos y se agregan a un queue para escritura asíncrona a disco
+        \item Se envía un ACK con \texttt{ack\_num = packet.seq\_num}
+        \item Se alterna \texttt{expected\_seq} (0 $\rightarrow$ 1 o 1 $\rightarrow$ 0)
+    \end{itemize}
+    \item Si no coinciden (paquete duplicado):
+    \begin{itemize}
+        \item Se descartan los datos (para evitar duplicación)
+        \item Se reenvía el ACK del paquete (ACK duplicado)
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Detección de fin de transferencia:}
+
+El receptor permanece en un loop esperando paquetes hasta recibir un paquete de tipo FIN. Al detectar FIN:
+\begin{itemize}
+    \item Se señaliza al writer thread que la transferencia terminó (enviando \texttt{None} al queue)
+    \item Se invoca \texttt{\_handle\_fin()} para enviar FIN\_ACK y manejar posibles retransmisiones del FIN
+    \item Se retorna el resultado de la transferencia (éxito o fallo)
+\end{itemize}
+
+El método \texttt{\_handle\_fin()} es crítico para evitar cierres prematuros. Después de enviar el FIN\_ACK inicial, el receptor permanece escuchando durante 5 segundos por posibles retransmisiones del FIN (que ocurren si el emisor no recibió el FIN\_ACK). Si detecta un FIN duplicado, reenvía el FIN\_ACK.
+
+\subsubsection{Manejo de errores y casos especiales}
+
+\textbf{Corrupción de paquetes:}
+Los paquetes con checksum inválido se descartan. El emisor detectará la ausencia de ACK por timeout y retransmitirá.
+
+\textbf{Pérdida de paquetes DATA:}
+Si un paquete DATA se pierde en la red, el timer del emisor expirará y retransmitirá el paquete. El receptor, al recibir el paquete retransmitido, lo procesará normalmente.
+
+\textbf{Pérdida de ACKs:}
+Si un ACK se pierde, el emisor retransmitirá el paquete por timeout. El receptor recibirá un paquete duplicado (con \texttt{seq\_num} anterior), lo detectará mediante \texttt{expected\_seq}, descartará los datos y reenviará el ACK.
+
+\textbf{Paquetes fuera de orden:}
+Aunque UDP puede entregar paquetes fuera de orden, Stop \& Wait garantiza orden mediante su naturaleza secuencial. Solo un paquete está en tránsito a la vez, por lo que no puede haber overtaking.
+
+\textbf{Señalización de shutdown graceful:}
+El protocolo verifica periódicamente la variable global \texttt{\_shutdown\_requested} (configurada por SIGINT/SIGTERM). Si se detecta, tanto el emisor como el receptor abortan la transferencia ordenadamente.
+
+\subsubsection{Optimizaciones implementadas}
+
+\textbf{1. Tamaño de paquete aumentado:}
+Se utiliza \texttt{SW\_PACKET\_SIZE = 8192} bytes en lugar de los 4096 bytes estándar. Esto reduce a la mitad el número de paquetes para un archivo dado, disminuyendo el overhead del protocolo (menos handshakes por paquete).
+
+\textbf{2. Timeout agresivo:}
+El timeout de 50ms es significativamente menor que el timeout de Selective Repeat (200ms). Esto permite detección rápida de pérdidas y retransmisión inmediata, compensando parcialmente la naturaleza secuencial del protocolo.
+
+\textbf{3. Escritura asíncrona a disco:}
+Los datos recibidos se pasan a un thread dedicado mediante un \texttt{queue.Queue}. Esto permite que el receptor continúe procesando paquetes mientras el I/O de disco se ejecuta en paralelo, evitando que la escritura bloquee la recepción.
+
+\textbf{4. Reutilización de sockets:}
+El emisor configura \texttt{SO\_REUSEADDR} en el socket, permitiendo la rápida reutilización de puertos tras finalizar transferencias, especialmente importante en el modelo de puertos dedicados del servidor.
+
+
 \subsection{Selective Repeat}
+
+Selective Repeat es un protocolo de ventana deslizante que permite tener múltiples paquetes en tránsito simultáneamente, logrando un throughput significativamente mayor que Stop \& Wait. Selective Repeat solo retransmite los paquetes que efectivamente se perdieron, optimizando el uso del ancho de banda.
+
+\subsubsection{Principio de funcionamiento}
+
+El protocolo se basa en el concepto de ventana deslizante: el emisor puede transmitir hasta \texttt{WINDOW\_SIZE} paquetes sin esperar confirmación. Cada paquete tiene su propio timer independiente, y los ACKs son selectivos (confirman paquetes individuales, no acumulativos).
+
+\textbf{Variables fundamentales:}
+\begin{itemize}
+    \item \texttt{send\_base}: Índice del paquete más antiguo sin confirmar en el emisor
+    \item \texttt{nextseqnum}: Próximo número de secuencia disponible para envío
+    \item \texttt{rcv\_base}: Índice del paquete más antiguo esperado en el receptor
+    \item \texttt{WINDOW\_SIZE}: Tamaño máximo de la ventana (20 paquetes en esta implementación)
+\end{itemize}
+
+El emisor mantiene una ventana de envío \texttt{[send\_base, send\_base + WINDOW\_SIZE)} donde puede enviar paquetes. Cuando un paquete es confirmado, si coincide con \texttt{send\_base}, la ventana se desliza para incluir nuevos paquetes. El receptor mantiene una ventana de recepción \texttt{[rcv\_base, rcv\_base + WINDOW\_SIZE)} donde puede bufferar paquetes fuera de orden.
+
+\subsubsection{Implementación del emisor}
+
+La clase \texttt{SelectiveRepeatSender} en \texttt{selective\_repeat.py} implementa el emisor con las siguientes estructuras:
+
+\textbf{Variables de estado:}
+\begin{itemize}
+    \item \texttt{send\_base}: Primer paquete sin ACK
+    \item \texttt{nextseqnum}: Siguiente paquete a enviar
+    \item \texttt{send\_window}: Diccionario \texttt{\{seq\_num: (packet, timer)\}} con paquetes en tránsito y sus timers
+    \item \texttt{window\_size}: Tamaño de ventana (20 por defecto)
+    \item \texttt{session\_id}: Identificador de sesión
+\end{itemize}
+
+\textbf{Algoritmo principal de envío:}
+
+El método \texttt{\_send\_packets()} implementa el bucle principal del protocolo, es decir, la lógica de envío en el protocolo con ventana deslizante (Selective Repeat).
+\\
+
+El bucle principal se ejecuta mientras existan paquetes por transmitir o aún haya paquetes pendientes de confirmación. Para cada iteración, se envían nuevos paquetes dentro de los límites de la ventana, asignándoles un número de secuencia calculado con \textit{wrap-around} sobre un espacio finito de 256 valores, lo que permite reutilizar números sin perder consistencia.
+
+Cada paquete enviado se asocia con un temporizador individual para detectar pérdidas y posibilitar retransmisiones en caso de que el ACK correspondiente no llegue a tiempo. En paralelo, se procesan los ACKs recibidos y se gestionan los posibles \textit{timeouts}, asegurando que la transferencia avance de manera confiable y eficiente.
+
+Este diseño permite pipelining: múltiples paquetes se envían sin esperar confirmación, maximizando el uso del canal.
+
+\textbf{Manejo de ACKs y timeouts:}
+
+El método \texttt{\_handle\_acks\_and\_timeouts()} ejecuta dos tareas en cada iteración:
+
+\begin{enumerate}
+    \item \textbf{Recepción de ACKs} (no bloqueante con timeout de 100ms):
+    \begin{itemize}
+        \item Si se recibe un ACK válido para un paquete en \texttt{send\_window}, se elimina ese paquete
+        \item Si el ACK confirma \texttt{send\_base}, se desliza la ventana: \texttt{send\_base} avanza hasta el primer paquete sin confirmar
+        \item Los ACKs fuera de ventana o duplicados se ignoran
+    \end{itemize}
+    
+    \item \textbf{Verificación de timers expirados}:
+    \begin{itemize}
+        \item Se itera sobre todos los paquetes en \texttt{send\_window}
+        \item Para cada paquete cuyo timer haya expirado (> 200ms), se retransmite selectivamente
+        \item Se reinicia el timer del paquete retransmitido
+    \end{itemize}
+\end{enumerate}
+
+Esta lógica garantiza que solo se retransmiten los paquetes perdidos, y no toda la ventana.
+
+\textbf{Timers independientes por paquete:}
+
+Cada paquete enviado mantiene asociado un objeto \texttt{PacketTimer}, un temporizador propio que permite medir de forma precisa su tiempo de vida en tránsito. Gracias a este mecanismo, el emisor puede detectar si un paquete específico no recibió su confirmación dentro del intervalo configurado. 
+
+El uso de timers individuales aporta granularidad a la retransmisión: si algunos paquetes de la ventana (por ejemplo, los números 5 y 8) se pierden, únicamente esos se reenvían al expirar sus temporizadores, mientras que los demás continúan su curso normal. De esta forma se evita la retransmisión innecesaria de bloques completos, optimizando tanto el rendimiento como la eficiencia del protocolo.
+
+\textbf{Manejo del wrap-around de números de secuencia:}
+
+El protocolo utiliza números de secuencia de 8 bits (0-255), lo que implica que deben reiniciarse al llegar al valor máximo. Para resolver esto, se aplica un mecanismo de \textit{wrap-around}, asegurando que la numeración vuelva a comenzar desde cero de manera controlada. 
+
+Mediante este enfoque, es posible identificar de forma correcta los paquetes incluso en transferencias largas que superan los 256 segmentos. Al recibir un \texttt{ACK}, el protocolo realiza la comparación considerando este reinicio, lo que permite mantener la consistencia de la ventana de envío y asegurar que cada confirmación se asocie al paquete correcto.
+
+\subsubsection{Implementación del receptor}
+
+La clase \texttt{SelectiveRepeatReceiver} implementa el receptor con buffering para paquetes fuera de orden:
+
+\textbf{Variables de estado:}
+\begin{itemize}
+    \item \texttt{rcv\_base}: Número de secuencia del próximo paquete esperado en orden
+    \item \texttt{rcv\_window}: Diccionario \texttt{\{seq\_num: packet\}} que bufferea paquetes recibidos dentro de la ventana
+    \item \texttt{received\_data}: Acumulador de datos entregados en orden a la aplicación
+    \item \texttt{window\_size}: Tamaño de ventana de recepción (20)
+\end{itemize}
+
+\textbf{Procesamiento de paquetes:}
+
+El método \texttt{\_process\_packet()} maneja cada paquete recibido según su número de secuencia:
+
+\begin{enumerate}
+    \item \textbf{Paquete dentro de la ventana de recepción} \texttt{[rcv\_base, rcv\_base + window\_size)}:
+    \begin{itemize}
+        \item Si es un paquete nuevo (no está en \texttt{rcv\_window}), se bufferea
+        \item Se envía ACK selectivo con \texttt{ack\_num = packet.seq\_num}
+        \item Se intenta entregar paquetes consecutivos: mientras \texttt{rcv\_base} esté en \texttt{rcv\_window}:
+        \begin{itemize}
+            \item Se extrae el paquete del buffer
+            \item Se agregan sus datos al queue de escritura
+            \item Se incrementa \texttt{rcv\_base}
+        \end{itemize}
+    \end{itemize}
+    
+    \item \textbf{Paquete antes de la ventana} (\texttt{seq\_num < rcv\_base}):
+    \begin{itemize}
+        \item Es un paquete duplicado (ya entregado)
+        \item Se reenvía ACK (ACK duplicado)
+        \item Se descartan los datos
+    \end{itemize}
+    
+    \item \textbf{Paquete después de la ventana} (\texttt{seq\_num >= rcv\_base + window\_size}):
+    \begin{itemize}
+        \item Paquete demasiado adelantado, fuera de capacidad de buffering
+        \item Se envía ACK pero se descarta el paquete
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Entrega en orden a la aplicación:}
+
+El mecanismo de buffering permite recibir paquetes fuera de orden pero entregarlos secuencialmente:
+
+\begin{verbatim}
+# Ejemplo: recibimos paquetes 0, 2, 1, 3 (fuera de orden)
+Paquete 0 llega: rcv_base=0
+    -> bufferea en rcv_window[0]
+    -> entrega paquete 0, rcv_base avanza a 1
+    
+Paquete 2 llega: rcv_base=1
+    -> bufferea en rcv_window[2]
+    -> no puede entregar (falta paquete 1), rcv_base=1
+    
+Paquete 1 llega: rcv_base=1
+    -> bufferea en rcv_window[1]
+    -> entrega paquete 1, rcv_base avanza a 2
+    -> encuentra paquete 2 ya buffereado
+    -> entrega paquete 2, rcv_base avanza a 3
+    
+Paquete 3 llega: rcv_base=3
+    -> bufferea en rcv_window[3]
+    -> entrega paquete 3, rcv_base avanza a 4
+\end{verbatim}
+
+De esta manera, los paquetes se reciben en cualquier orden, pero se entregan consecutivamente a la capa de aplicación.
+
+\textbf{Manejo de wrap-around en la ventana:}
+
+El método \texttt{\_is\_in\_window()} determina si un número de secuencia está dentro de la ventana considerando el wrap-around.
+\\
+
+La verificación de si un número de secuencia pertenece a la ventana activa debe contemplar el caso en que esta cruce el límite de 255 a 0. Para ello, el protocolo implementa una lógica de \textit{wrap-around} que distingue entre el caso normal (sin cruce) y el caso donde la ventana se extiende de los valores altos hacia los bajos del rango.  
+De esta forma, la ventana puede abarcar intervalos como \([240, 255] \cup [0, 20]\), garantizando que la transmisión y la recepción funcionen correctamente incluso en transferencias extensas. Esto asegura que el control de flujo sea continuo y robusto frente al límite de numeración de 8 bits.
+
+
+\subsubsection{Optimizaciones implementadas}
+
+\textbf{1. Tamaño de ventana ajustado:}
+Se usa \texttt{WINDOW\_SIZE = 20}, que empíricamente demostró ser un balance entre throughput y confiabilidad ante pérdidas. Ventanas más grandes aumentan throughput pero requieren más memoria y pueden causar más retransmisiones.
+
+\textbf{2. Socket no bloqueante:}
+El emisor configura un timeout corto (100ms) para \texttt{recvfrom()}, permitiendo verificar timers periódicamente sin bloquear el envío de nuevos paquetes.
+
+\textbf{3. ACKs inmediatos:}
+El receptor envía ACK inmediatamente al recibir cada paquete (incluso duplicados), minimizando la probabilidad de timeouts espurios por ACKs retrasados.
+
+\textbf{4. Paquetes más pequeños:}
+Se usa \texttt{PACKET\_SIZE = 4096} bytes (vs 8192 en Stop \& Wait). Paquetes más pequeños reducen el impacto de pérdidas individuales y mejoran la granularidad de retransmisiones.
+
+\subsubsection{Comparación de rendimiento con Stop \& Wait}
+
+Selective Repeat aprovecha el pipelining para lograr throughput significativamente mayor que Stop \& Wait:
+
+\[
+\text{Throughput}_{\text{SR}} \approx \frac{\text{WINDOW\_SIZE} \times \text{PACKET\_SIZE}}{\text{RTT}}
+\]
+
+Para \texttt{WINDOW\_SIZE = 20}, \texttt{PACKET\_SIZE = 4096} bytes, y RTT = 10ms:
+
+\[
+\text{Throughput}_{\text{SR}} \approx \frac{20 \times 4096}{0.01} = 8.19 \text{ MB/s} \approx 65.5 \text{ Mbps}
+\]
+
+Esta es aproximadamente 50 veces mayor que Stop \& Wait en las mismas condiciones. En presencia de pérdidas del 10\%, Selective Repeat mantiene alto rendimiento retransmitiendo solo paquetes perdidos, mientras que Stop \& Wait sufre retransmisiones más frecuentes debido a pérdidas de ACKs.
+ 
