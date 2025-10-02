@@ -19,7 +19,7 @@
 \contentsline {subsection}{\numberline {3.6}Manejo de Concurrencia}{16}{subsection.3.6}%
 \contentsline {subsubsection}{\numberline {3.6.1}Arquitectura Concurrente}{16}{subsubsection.3.6.1}%
 \contentsline {subsubsection}{\numberline {3.6.2}Gestión de Recursos Compartidos}{17}{subsubsection.3.6.2}%
-\contentsline {subsubsection}{\numberline {3.6.3}Puertos Dedicados}{17}{subsubsection.3.6.3}%
+\contentsline {subsubsection}{\numberline {3.6.3}Puertos Dedicados}{18}{subsubsection.3.6.3}%
 \contentsline {subsubsection}{\numberline {3.6.4}Control de Capacidad}{18}{subsubsection.3.6.4}%
 \contentsline {subsubsection}{\numberline {3.6.5}Flujo Completo de una Sesión Concurrente}{18}{subsubsection.3.6.5}%
 \contentsline {subsection}{\numberline {3.7}Stop \& Wait}{19}{subsection.3.7}%
@@ -27,18 +27,15 @@
 \contentsline {subsubsection}{\numberline {3.7.2}Implementación del emisor}{20}{subsubsection.3.7.2}%
 \contentsline {subsubsection}{\numberline {3.7.3}Implementación del receptor}{21}{subsubsection.3.7.3}%
 \contentsline {subsubsection}{\numberline {3.7.4}Manejo de errores y casos especiales}{22}{subsubsection.3.7.4}%
-\contentsline {subsubsection}{\numberline {3.7.5}Optimizaciones implementadas}{22}{subsubsection.3.7.5}%
-\contentsline {subsection}{\numberline {3.8}Selective Repeat}{23}{subsection.3.8}%
+\contentsline {subsection}{\numberline {3.8}Selective Repeat}{22}{subsection.3.8}%
 \contentsline {subsubsection}{\numberline {3.8.1}Principio de funcionamiento}{23}{subsubsection.3.8.1}%
 \contentsline {subsubsection}{\numberline {3.8.2}Implementación del emisor}{23}{subsubsection.3.8.2}%
-\contentsline {subsubsection}{\numberline {3.8.3}Implementación del receptor}{25}{subsubsection.3.8.3}%
-\contentsline {subsubsection}{\numberline {3.8.4}Optimizaciones implementadas}{26}{subsubsection.3.8.4}%
-\contentsline {subsubsection}{\numberline {3.8.5}Comparación de rendimiento con Stop \& Wait}{27}{subsubsection.3.8.5}%
-\contentsline {section}{\numberline {4}Pruebas}{28}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Métricas de rendimiento}{28}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Herramientas utilizadas}{28}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Escenarios de prueba}{28}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Resultados obtenidos}{28}{subsection.4.4}%
-\contentsline {section}{\numberline {5}Preguntas a responder}{33}{section.5}%
-\contentsline {section}{\numberline {6}Dificultades encontradas}{40}{section.6}%
-\contentsline {section}{\numberline {7}Conclusiones}{41}{section.7}%
+\contentsline {subsubsection}{\numberline {3.8.3}Implementación del receptor}{24}{subsubsection.3.8.3}%
+\contentsline {section}{\numberline {4}Pruebas}{27}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Métricas de rendimiento}{27}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Herramientas utilizadas}{27}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Escenarios de prueba}{27}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Resultados obtenidos}{27}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Preguntas a responder}{32}{section.5}%
+\contentsline {section}{\numberline {6}Dificultades encontradas}{39}{section.6}%
+\contentsline {section}{\numberline {7}Conclusiones}{40}{section.7}%

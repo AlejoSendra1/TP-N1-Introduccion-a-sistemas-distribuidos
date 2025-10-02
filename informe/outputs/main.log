@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2025.9.30)  2 OCT 2025 14:34
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2025.9.30)  2 OCT 2025 15:44
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -331,11 +331,7 @@ File: l3backend-pdftex.def 2024-01-04 L3 backend support: PDF output (pdfTeX)
 ) (outputs/main.aux (outputs/utilities/title.aux)
 LaTeX Info: Redefining \. on input line 12.
 LaTeX Info: Redefining \% on input line 12.
- (outputs/content/introduccion.aux) (outputs/content/hipotesis.aux) (outputs/content/implementacion.aux
-
-LaTeX Warning: Label `fig:retransmision' multiply defined.
-
-) (outputs/content/pruebas.aux) (outputs/content/preguntas.aux) (outputs/content/dificultades.aux) (outputs/content/conclusion.aux))
+ (outputs/content/introduccion.aux) (outputs/content/hipotesis.aux) (outputs/content/implementacion.aux) (outputs/content/pruebas.aux) (outputs/content/preguntas.aux) (outputs/content/dificultades.aux) (outputs/content/conclusion.aux))
 \openout1 = `main.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 6.
@@ -425,19 +421,19 @@ File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 {/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf/fonts/enc/dvips/cm-super/cm-super-t1.enc}]) (outputs/main.toc
 LaTeX Info: Redefining \. on input line 1.
 LaTeX Info: Redefining \% on input line 1.
+)
+\tf@toc=\write4
+\openout4 = `main.toc'.
+
 
 pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has been already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.43 ...6}Dificultades encontradas}{40}{section.6}
-                                                  % [1
+l.10 \newpage
+              [1
 
 
-])
-\tf@toc=\write4
-\openout4 = `main.toc'.
-
- [2]
+] [2]
 \openout2 = `content/introduccion.aux'.
 
  (./content/introduccion.tex
@@ -550,7 +546,7 @@ Underfull \hbox (badness 7168) in paragraph at lines 103--103
 []|\T1/cmr/m/n/12 Texto des-crip-ti-vo (ej:
  []
 
-<images/UPLOAD_HANDSHAKE.png, id=290, 3854.4pt x 3370.5925pt>
+<images/UPLOAD_HANDSHAKE.png, id=275, 3854.4pt x 3370.5925pt>
 File: images/UPLOAD_HANDSHAKE.png Graphic file (type png)
 <use images/UPLOAD_HANDSHAKE.png>
 Package pdftex.def Info: images/UPLOAD_HANDSHAKE.png  used on input line 113.
@@ -561,7 +557,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{table.2}) has 
                                                   \__shipout_drop_firstpage_...
 l.117 
       ]
-<images/DOWNLOAD_HANDSHAKE.png, id=298, 3302.3375pt x 3854.4pt>
+<images/DOWNLOAD_HANDSHAKE.png, id=283, 3302.3375pt x 3854.4pt>
 File: images/DOWNLOAD_HANDSHAKE.png Graphic file (type png)
 <use images/DOWNLOAD_HANDSHAKE.png>
 Package pdftex.def Info: images/DOWNLOAD_HANDSHAKE.png  used on input line 122.
@@ -572,7 +568,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{figure.1}) has
                                                   \__shipout_drop_firstpage_...
 l.126 
        <./images/UPLOAD_HANDSHAKE.png>]
-<images/FIN.png, id=306, 3854.4pt x 2259.44125pt>
+<images/FIN.png, id=290, 3854.4pt x 2259.44125pt>
 File: images/FIN.png Graphic file (type png)
 <use images/FIN.png>
 Package pdftex.def Info: images/FIN.png  used on input line 131.
@@ -583,7 +579,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{figure.2}) has
                                                   \__shipout_drop_firstpage_...
 l.135 
        <./images/DOWNLOAD_HANDSHAKE.png>]
-<images/UPLOAD_DOWNLOAD.png, id=313, 2820.5375pt x 3854.4pt>
+<images/UPLOAD_DOWNLOAD.png, id=298, 2820.5375pt x 3854.4pt>
 File: images/UPLOAD_DOWNLOAD.png Graphic file (type png)
 <use images/UPLOAD_DOWNLOAD.png>
 Package pdftex.def Info: images/UPLOAD_DOWNLOAD.png  used on input line 140.
@@ -594,7 +590,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{figure.3}) has
                                                   \__shipout_drop_firstpage_...
 l.144 
        <./images/FIN.png>]
-<images/UPLOAD_DOWNLOAD_SR.png, id=320, 3678.74374pt x 3854.4pt>
+<images/UPLOAD_DOWNLOAD_SR.png, id=305, 3678.74374pt x 3854.4pt>
 File: images/UPLOAD_DOWNLOAD_SR.png Graphic file (type png)
 <use images/UPLOAD_DOWNLOAD_SR.png>
 Package pdftex.def Info: images/UPLOAD_DOWNLOAD_SR.png  used on input line 147.
@@ -615,13 +611,13 @@ pdfTeX warning (ext4): destination with the same identifier (name{figure.5}) has
                                                   \__shipout_drop_firstpage_...
 l.158 
        <./images/UPLOAD_DOWNLOAD_SR.png>]
-<images/RETRANSMISION.png, id=335, 3288.285pt x 3854.4pt>
+<images/RETRANSMISION.png, id=320, 3288.285pt x 3854.4pt>
 File: images/RETRANSMISION.png Graphic file (type png)
 <use images/RETRANSMISION.png>
 Package pdftex.def Info: images/RETRANSMISION.png  used on input line 179.
 (pdftex.def)             Requested size: 472.03123pt x 553.25702pt.
  [14]
-<images/diagram_sec_unexistent_file.png, id=344, 3854.4pt x 1619.04875pt>
+<images/diagram_sec_unexistent_file.png, id=329, 3854.4pt x 1619.04875pt>
 File: images/diagram_sec_unexistent_file.png Graphic file (type png)
 <use images/diagram_sec_unexistent_file.png>
 Package pdftex.def Info: images/diagram_sec_unexistent_file.png  used on input line 186.
@@ -631,83 +627,108 @@ pdfTeX warning (ext4): destination with the same identifier (name{figure.6}) has
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.190 
-       <./images/RETRANSMISION.png>] [16
+       <./images/RETRANSMISION.png>]
+Underfull \hbox (badness 10000) in paragraph at lines 194--197
+
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 210--212
+
+ []
+
+[16
 pdfTeX warning (ext4): destination with the same identifier (name{figure.7}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.223 \end{itemize}
-                    <./images/diagram_sec_unexistent_file.png>] [17] [18] [19
+l.221     \item \textbf
+                       {File descriptor:} Cada thread maneja su propio archi... <./images/diagram_sec_unexistent_file.png>]
+Underfull \hbox (badness 10000) in paragraph at lines 228--230
+
+ []
+
+[17] [18] [19
 pdfTeX warning (ext4): destination with the same identifier (name{figure.8}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.343 
-      ] [20] [21] [22] [23]
-Underfull \hbox (badness 10000) in paragraph at lines 507--509
+      ]
+Underfull \hbox (badness 10000) in paragraph at lines 366--368
 
  []
 
-[24]
-Overfull \hbox (16.20901pt too wide) in paragraph at lines 567--569
+
+Underfull \hbox (badness 10000) in paragraph at lines 380--382
+
+ []
+
+[20]
+Underfull \hbox (badness 10000) in paragraph at lines 396--398
+
+ []
+
+[21] [22]
+Underfull \hbox (badness 10000) in paragraph at lines 496--498
+
+ []
+
+[23] [24]
+Overfull \hbox (16.20901pt too wide) in paragraph at lines 556--558
 []\T1/cmr/bx/n/12 Paquete den-tro de la ven-ta-na de re-cep-ción \T1/cmtt/m/n/12 [rcv_base, rcv_base + window_size)\T1/cmr/m/n/12 : 
  []
 
 [25{/usr/share/texmf/fonts/enc/dvips/cm-super/cm-super-ts1.enc}]
-Underfull \hbox (badness 10000) in paragraph at lines 622--624
+Underfull \hbox (badness 10000) in paragraph at lines 611--613
 
  []
 
-
-Overfull \hbox (8.81277pt too wide) in paragraph at lines 634--636
-[]\T1/cmr/bx/n/12 2. Soc-ket no blo-quean-te: \T1/cmr/m/n/12 El emi-sor con-fi-gu-ra un ti-meout cor-to (100ms) pa-ra \T1/cmtt/m/n/12 recvfrom()\T1/cmr/m/n/12 ,
- []
-
-[26]) [27]
+) [26]
 \openout2 = `content/pruebas.aux'.
 
  (./content/pruebas.tex
-<images/server_sender_total_time (1).png, id=448, 578.16pt x 361.35pt>
+<images/server_sender_total_time (1).png, id=428, 578.16pt x 361.35pt>
 File: images/server_sender_total_time (1).png Graphic file (type png)
 <use images/server_sender_total_time (1).png>
 Package pdftex.def Info: images/server_sender_total_time (1).png  used on input line 29.
 (pdftex.def)             Requested size: 472.03123pt x 295.0187pt.
- [28
+ [27
 
 
 
 ]
-<images/download_receiver_throughput_loss (1).png, id=453, 578.16pt x 361.35pt>
+<images/download_receiver_throughput_loss (1).png, id=433, 578.16pt x 361.35pt>
 File: images/download_receiver_throughput_loss (1).png Graphic file (type png)
 <use images/download_receiver_throughput_loss (1).png>
 Package pdftex.def Info: images/download_receiver_throughput_loss (1).png  used on input line 38.
 (pdftex.def)             Requested size: 472.03123pt x 295.0187pt.
- [29
+ [28
 pdfTeX warning (ext4): destination with the same identifier (name{figure.9}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.42 
       <./images/server_sender_total_time (1).png>]
-<images/server_sender_jitter.png, id=460, 433.62pt x 289.08pt>
+<images/server_sender_jitter.png, id=440, 433.62pt x 289.08pt>
 File: images/server_sender_jitter.png Graphic file (type png)
 <use images/server_sender_jitter.png>
 Package pdftex.def Info: images/server_sender_jitter.png  used on input line 47.
 (pdftex.def)             Requested size: 472.03123pt x 314.70277pt.
- [30
+ [29
 pdfTeX warning (ext4): destination with the same identifier (name{figure.10}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.51 
       <./images/download_receiver_throughput_loss (1).png>]
-<images/upload_sender_window_utilization.png, id=468, 578.16pt x 361.35pt>
+<images/upload_sender_window_utilization.png, id=447, 578.16pt x 361.35pt>
 File: images/upload_sender_window_utilization.png Graphic file (type png)
 <use images/upload_sender_window_utilization.png>
 Package pdftex.def Info: images/upload_sender_window_utilization.png  used on input line 56.
 (pdftex.def)             Requested size: 472.03123pt x 295.0187pt.
- [31
+ [30
 pdfTeX warning (ext4): destination with the same identifier (name{figure.11}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.60 
-      <./images/server_sender_jitter.png>]) [32
+      <./images/server_sender_jitter.png>]) [31
 pdfTeX warning (ext4): destination with the same identifier (name{figure.12}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
@@ -715,7 +736,7 @@ l.15 \include{content/pruebas}
                                <./images/upload_sender_window_utilization.png>]
 \openout2 = `content/preguntas.aux'.
 
- (./content/preguntas.tex [33
+ (./content/preguntas.tex [32
 
 
 
@@ -724,17 +745,17 @@ Overfull \hbox (12.04369pt too wide) in paragraph at lines 60--61
 []\T1/cmtt/m/n/12 protocol \T1/cmr/m/n/12 (1 by-te): Pro-to-co-lo de re-cu-pe-ra-ción de erro-res se-lec-cio-na-do (1=Stop&Wait,
  []
 
-[34] [35] [36] [37] [38]) [39]
+[33] [34] [35] [36] [37]) [38]
 \openout2 = `content/dificultades.aux'.
 
- (./content/dificultades.tex) [40
+ (./content/dificultades.tex) [39
 
 
 
 ]
 \openout2 = `content/conclusion.aux'.
 
- (./content/conclusion.tex) [41
+ (./content/conclusion.tex) [40
 
 
 
@@ -746,26 +767,22 @@ LaTeX Info: Redefining \% on input line 12.
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
  ***********
-
-
-LaTeX Warning: There were multiply-defined labels.
-
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: C97F316B4918E4224D2FB644B0FF227B;7837.
+(rerunfilecheck)             Checksum: C49D30C76C79C924C6D2B4E2DE70A3D3;7113.
  ) 
 Here is how much of TeX's memory you used:
- 12585 strings out of 474222
- 200142 string characters out of 5748733
+ 12570 strings out of 474222
+ 199904 string characters out of 5748733
  1939975 words of memory out of 5000000
- 34435 multiletter control sequences out of 15000+600000
- 574553 words of font info for 72 fonts, out of 8000000 for 9000
+ 34426 multiletter control sequences out of 15000+600000
+ 573023 words of font info for 70 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 80i,12n,82p,1120b,769s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1440.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1728.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx2488.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfcc1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm0800.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1728.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfti1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1095.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1200.pfb>
-Output written on outputs/main.pdf (42 pages, 2552398 bytes).
+ 80i,12n,82p,1556b,701s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1440.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1728.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx2488.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfcc1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1728.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfti1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1095.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1200.pfb>
+Output written on outputs/main.pdf (41 pages, 2542230 bytes).
 PDF statistics:
- 633 PDF objects out of 1000 (max. 8388607)
- 532 compressed objects within 6 object streams
- 179 named destinations out of 1000 (max. 500000)
- 400 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 609 PDF objects out of 1000 (max. 8388607)
+ 511 compressed objects within 6 object streams
+ 175 named destinations out of 1000 (max. 500000)
+ 376 words of extra memory for PDF output out of 10000 (max. 10000000)
 

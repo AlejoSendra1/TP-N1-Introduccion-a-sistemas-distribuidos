@@ -185,11 +185,8 @@ A continuación, se presentan diagramas de secuencia que ilustran lo explicado e
     \centering
     \includegraphics[width=1\linewidth]{images/diagram_sec_unexistent_file.png}
     \caption{Cierre de conexión y envio de error por solicitud de archivo inexistente.}
-    \label{fig:retransmision}
+    \label{fig:unexistent_file_error}
 \end{figure}
-
-
-
 
 \subsection{Manejo de Concurrencia}
 
@@ -376,8 +373,8 @@ La clase \texttt{RDTSender} en \texttt{stop\_wait.py} implementa el emisor del p
     \item \texttt{socket}: Socket UDP para transmisión
     \item \texttt{dest\_addr}: Dirección y puerto del receptor
 \end{itemize}
-\\
 
+ 
 \textbf{Preparación de paquetes:}
 
 El método \texttt{\_prepare\_packets()} lee el archivo fuente y lo fragmenta en paquetes DATA.
