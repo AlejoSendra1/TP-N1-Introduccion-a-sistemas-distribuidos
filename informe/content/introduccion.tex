@@ -1,4 +1,17 @@
 \section{Introducción}
+Este trabajo implementa un protocolo RDT (Reliable Data Transfer) implementado para transferencia confiable de archivos sobre UDP. El protocolo soporta operaciones de upload y download con dos estrategias de recuperación de errores: Stop \& Wait y Selective Repeat, garantizando entrega confiable con hasta 10\% de pérdida de paquetes.
+\\
+
+El diseño del protocolo se basa en los principios de transferencia confiable de datos, implementando mecanismos de:
+\begin{itemize}
+    \item Detección de errores mediante checksums
+    \item Numeración de secuencia para detectar duplicados
+    \item Retransmisión automática ante pérdida de paquetes
+    \item Control de flujo mediante ventanas deslizantes (Selective Repeat)
+    \item 3-Way-Handshake para establecimiento de sesión
+    \item Manejo concurrente de múltiples transferencias
+\end{itemize}
+
 \subsubsection*{Contexto del Problema}
 \subsubsection*{Objetivos del Trabajo Práctico}
 \subsubsection*{Alcance y Limitaciones}

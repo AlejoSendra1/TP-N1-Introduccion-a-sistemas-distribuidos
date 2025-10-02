@@ -1,4 +1,49 @@
 \section{Hipótesis y suposiciones realizadas}
+
+Durante el desarrollo del protocolo, se realizaron las siguientes hipótesis y suposiciones:
+
+\subsection{Sobre el Entorno de Red}
+\begin{enumerate}
+    \item \textbf{Pérdida de paquetes}: Se asume que la pérdida de paquetes es aleatoria y no supera el 10\%. No se consideran escenarios con pérdida masiva o sistemática.
+    \item \textbf{Reordenamiento}: Se asume que los paquetes pueden llegar desordenados, pero que el reordenamiento no es extremo. El protocolo maneja esto con números de secuencia y buffers.
+    \item \textbf{Duplicación}: Se asume que puede haber paquetes duplicados debido a retransmisiones, y el protocolo debe ser idempotente.
+    \item \textbf{Corrupción}: Se asume que UDP puede entregar paquetes corruptos, aunque es poco común. Se implementa checksum para detección.
+\end{enumerate}
+
+\subsection{Sobre la Aplicación}
+\begin{enumerate}
+    \item \textbf{Tamaño de archivos}: Los archivos a transferir no superan los 5 MB. Esta limitación permite mantener estructuras de datos simples y eficientes.
+    \item \textbf{Nombres de archivo}: Se asume que los nombres de archivo son válidos en UTF-8 y no contienen caracteres especiales que puedan causar problemas en el sistema de archivos.
+    \item \textbf{Unicidad de archivos}: El servidor sobrescribe archivos con el mismo nombre sin previo aviso. No se implementó versionado.
+    \item \textbf{Recursos del sistema}: Se asume que el sistema tiene suficiente memoria para mantener buffers de ventanas y archivos en memoria durante la transferencia.
+\end{enumerate}
+
+\subsection{Sobre el Protocolo}
+\begin{enumerate}
+    \item \textbf{Session IDs}: Con un espacio de 255 IDs posibles y un límite de 10 sesiones concurrentes, se asume que siempre hay IDs disponibles.
+    \item \textbf{Números de secuencia}: El espacio de 256 números (0-255) es suficiente para ventanas de tamaño 20-30 paquetes con el mecanismo de wrap-around.
+    \item \textbf{Timeouts}: Se asumieron valores fijos de timeout basados en una red de baja latencia (LAN/localhost). En una WAN real, se necesitaría un mecanismo de timeout adaptativo.
+    \item \textbf{Orden de operaciones}: Se asume que el handshake siempre se completa antes de comenzar la transferencia de datos. No se consideran casos de transferencia parcial con re-handshake.
+\end{enumerate}
+
+\subsection{Sobre la Concurrencia}
+\begin{enumerate}
+    \item \textbf{Thread-safety}: Se asume que las estructuras de datos compartidas (como \texttt{active\_sessions}) son accedidas con locks apropiados para evitar race conditions.
+    \item \textbf{Puertos disponibles}: Se asume que el sistema operativo siempre puede asignar un puerto dinámico para cada nueva sesión.
+    \item \textbf{Límite de concurrencia}: Se estableció un límite de 10 transferencias simultáneas como balance entre capacidad y uso de recursos.
+\end{enumerate}
+
+\subsection{Decisiones de Diseño Basadas en Suposiciones}
+Estas suposiciones llevaron a las siguientes decisiones:
+\begin{itemize}
+    \item \textbf{Tamaño de paquete de 4096 bytes}: Balance entre eficiencia y fragmentación IP.
+    \item \textbf{Timeout de 50ms (Stop \& Wait) y 200ms (Selective Repeat)}: Optimizado para LAN.
+    \item \textbf{Ventana de 20 paquetes}: Suficiente para mantener el pipeline lleno sin abrumar al receptor.
+    \item \textbf{Máximo 20 reintentos}: Suficiente para recuperarse de pérdidas transitorias.
+\end{itemize}
+
+
+
 \subsection{Marco teórico}
 \subsection{Hipótesis}
 \subsection{Suposiciones}

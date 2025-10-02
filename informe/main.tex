@@ -3,12 +3,56 @@
 \input{utilities/packages}
 \geometry{margin=2.5cm}
 
+
+% Paquetes útiles
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{float}
+
+\usepackage{fancyhdr}   % Paquete para encabezados y pies de página
+\pagestyle{fancy}       % Activa estilo fancy
+
+% Limpia encabezados/pies previos
+\fancyhf{}
+
+% Encabezado
+\fancyhead[L]{TP1 - File Transfer}  % L = izquierda
+\fancyhead[R]{Intro. Sistemas Distribuidos} % R = derecha
+
+% Pie de página
+\fancyfoot[C]{\thepage}  % número de página en el centro abajo
+
 % Datos del informe
 \title{Título del Informe}
 \author{Autor/a}
 \date{\today}
 
 \begin{document}
+
+    \begin{titlepage} % Carátula
+    \centering
+    \vfill
+    \Huge \textbf{Trabajo Práctico 1 \\ File Transfer - Grupo 9}
+    \vskip2cm
+    \Large [75.43] Introducción a los Sistemas Distribuidos\\
+    Segundo cuatrimestre de 2025
+    \vfill
+    \vfill
+    \begin{tabular}{ | c | c | c | }
+      \hline
+      ALUMNO & PADRON & CORREO \\ \hline
+      BARTOCCI, Camila & 105781 & cbartocci@fi.uba.ar \\ \hline
+      PATIÑO, Franco & 105126 & fpatino@fi.uba.ar \\ \hline
+      RETAMOZO, Melina & 110065 & mretamozo@fi.uba.ar \\ \hline
+      SAGASTUME, Matias & 110530 & csagastume@fi.uba.ar \\ \hline
+      SENDRA, Alejo & 107716 & asendra@fi.uba.ar \\ \hline
+
+  	\end{tabular}
+    \vfill
+    \vfill
+\end{titlepage}
+\newpage
 
 \include{utilities/title}
 
