@@ -9,43 +9,79 @@ El servidor se encarga de escuchar conexiones y gestionar la recepción y distri
 
 Modo de ejecucion:
 
-```
-python3 server.py <interfaz_de_escucha> <puerto>
-```
-
-Donde: 
-< interfazde escucha>: La interfaz de red en la que el servidor escuchará las conexiones. 0.0.0.0 para escuchar en todas las interfaces disponibles.
-
-< puerto >: El número de puerto en el que el servidor estará escuchando.
-
-Ejemplo:
 
 ```
-python3 server.py 0.0.0.0 13000
-``` 
+python3 start-server.py [-h] [-v | -q] [-H HOST] [-p PORT] [-s STORAGE]
+```
+#### Opciones disponibles:
+
+- `-h`, `--help`: Muestra el mensaje de ayuda.
+- `-v`, `--verbose`: Aumenta el nivel de detalle en los mensajes de salida
+- `-q`, `--quiet`: Disminuye el nivel de detalle en los mensajes de salida. 
+- `-H HOST`, `--host HOST`: Host en el que el servidor escuchará las conexiones
+- `-p PORT`, `--port PORT`: Número de puerto en el que el servidor estará escuchando.
+- `-s STORAGE`, `--storage STORAGE`: Ruta al directorio donde se almacenarán los archivos recibidos. Por default es el directorio storage en el que se encuentra parado al momento de ejecutarlo (en caso de no existir se crea).
+
+
+Ejemplo de ejecucion:
+
+```
+python3 start-server.py -H 10.0.0.1 -p 13000
+```
 
 <br>
 
 
 ### Cliente
-El cliente se encarga de conectar al servidor y enviar msj (por ahora).
+El cliente se encarga de conectar al servidor y enviar o recibir archivos.
 
+### Upload
 Modo de ejecucion:
 
 ```
-python3 upload.py <ip_del_servidor> <puerto_del_servidor>
+python3 upload.py [-h] [-v | -q] [-H HOST] [-p PORT] -s SRC [-n NAME]
+[-r {stop_wait,selective_repeat}]
+```
+#### Opciones disponibles:
+
+- `-h`, `--help`: Muestra el mensaje de ayuda.
+- `-v`, `--verbose`: Aumenta el nivel de detalle en los mensajes de salida
+- `-q`, `--quiet`: Disminuye el nivel de detalle en los mensajes de salida. 
+- `-H HOST`, `--host HOST`: Dirección IP del servidor.  
+- `-p PORT`, `--port PORT`: Puerto en el que escucha el servidor.  
+- `-s SRC`, `--src SRC`: Ruta al archivo que se desea enviar.  
+- `-n NAME`, `--name NAME`: Nombre con el que se guardará el archivo en el servidor (por defecto se usa el nombre original).  
+- `-r {stop_wait,selective_repeat}`, `--protocol {stop_wait,selective_repeat}`: Protocolo de recuperación de errores a utilizar (por default se usa stop and wait).  
+
+Ejemplo de ejecucion:
+
+```
+python3 upload.py -v -H 10.0.0.1 -p 13000 -s prueba123.jpg
 ```
 
-< ip del servidor >: La dirección IP del servidor.
-
-< puerto del servidor >: El número de puerto en el que antiende el servidor.
-
-Ejemplo:
+### Download
+Modo de ejecucion:
 
 ```
-python3 upload.py 10.0.0.1 13000
+python3 download.py [-h] [-v | -q] [-H HOST] [-p PORT] -d DST -n NAME
+[-r {stop_wait,selective_repeat}]
 ```
+#### Opciones disponibles:
 
+- `-h`, `--help`: Muestra el mensaje de ayuda.
+- `-v`, `--verbose`: Aumenta el nivel de detalle en los mensajes de salida
+- `-q`, `--quiet`: Disminuye el nivel de detalle en los mensajes de salida. 
+- `-H HOST`, `--host HOST`: Dirección IP del servidor.  
+- `-p PORT`, `--port PORT`: Puerto en el que escucha el servidor.  
+- `-d DST`, `--dst DST`: Ruta local donde se guardará el archivo descargado.  
+- `-n NAME`, `--name NAME`: Nombre del archivo que se desea descargar del servidor.  
+- `-r {stop_wait,selective_repeat}`, `--protocol {stop_wait,selective_repeat}`: Protocolo de recuperación de errores a utilizar (por default se usa stop and wait).  
+
+Ejemplo de ejecucion:
+
+```
+python3 download.py -v -H 10.0.0.1 -p 13000 -n prueba123.jpg -d hola123.jpg
+```
 <br>
 
 ## 🌐 Simulación con Mininet
@@ -87,7 +123,7 @@ Para salir de la consola de Mininet:
 mininet> exit
 ```
 
-para liberar recursos ocupados en caso de cierre incorrecto de la app:
+Para liberar recursos ocupados en caso de cierre incorrecto de la app:
 ```
 mn -c 
 ```
