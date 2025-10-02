@@ -13,6 +13,38 @@ El diseño del protocolo se basa en los principios de transferencia confiable de
 \end{itemize}
 
 \subsubsection*{Contexto del Problema}
+La transferencia de archivos es una operación fundamental en sistemas distribuidos. Sin embargo, cuando se utiliza UDP como protocolo de transporte, no se cuenta con mecanismos de confiabilidad como en TCP. Esto obliga a implementar protocolos de Reliable Data Transfer (RDT) para asegurar la correcta entrega de datos aún en presencia de pérdidas, duplicados o errores.
+
 \subsubsection*{Objetivos del Trabajo Práctico}
+\begin{itemize}
+\item Desarrollar una aplicación cliente-servidor que permita upload y download de archivos.
+
+\item Implementar dos variantes de RDT sobre UDP: Stop \& Wait y Selective Repeat.
+
+\item Validar su funcionamiento bajo condiciones de pérdida de paquetes simuladas en Mininet.
+
+\item Comparar el rendimiento de ambos protocolos en distintos escenarios.
+\end{itemize}
+
 \subsubsection*{Alcance y Limitaciones}
+\begin{itemize}
+    
+\item Se soportan archivos binarios de hasta al menos 5 MB, con transferencias menores a 2 minutos.
+
+\item El servidor maneja múltiples clientes concurrentes.
+
+\item Se simulan pérdidas del 10\% con Mininet.
+
+\item No se implementó control de congestión
+
+\end{itemize}
+
 \subsubsection*{Estructura del Informe}
+El presente documento se organiza en:
+\begin{enumerate}[label=\roman*. ,leftmargin=2cm]
+    \item arquitectura del sistema
+    \item detalles de implementación de ambos protocolos
+    \item análisis de performance
+    \item respuestas a preguntas teóricas
+    \item dificultades encontradas y conclusiones.
+\end{enumerate}

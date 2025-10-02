@@ -150,15 +150,43 @@ En el caso de una subida de archivo, el emisor es el Cliente y el receptor el Se
 \end{figure}
 
 \subsection{Manejo de errores}
-% ACA PODRIAMOS AGREGAR ALGUN OTRO CASO DE ERROR TIPO ARCCHIVO NO EXISTE PARA MOSTRAR EL USO DEL TIPO DE PAQUETE "ERROR"
+El sistema implementa múltiples capas de manejo de errores:
+
+\begin{enumerate} [label=\roman*. , leftmargin=2cm]
+    \item \textbf{Validación de Checksums:}\\
+    Cada paquete incluye un checksum simple (suma de los bytes del payload, metadatos y encabezado). El receptor valida la integridad recalculando el checksum y comparándolo. En caso de que el paquete este corrupto, se descarta y no se envía confirmación, forzando retransmisión por timeout.
+
+    \item \textbf{Timeouts y Retransmisiones:}\\
+    Cada emisor asocia un temporizador a los paquetes enviados, si no se recibe el ACK correspondiente dentro del tiempo configurado, el paquete se retransmite asegurando la entrega aún bajo pérdidas del 10\% simuladas en Mininet.
+
+    \item \textbf{Control de duplicados:}\\
+    Stop \& Wait: gracias al uso de números de secuencia binarios (0/1), el receptor distingue duplicados fácilmente.\\
+    Selective Repeat: mantiene una ventana deslizante con buffer y descarta paquetes ya recibidos fuera de ventana.
+
+    \item \textbf{Manejo de paquetes fuera de orden:}\\
+    Stop \& Wait: no admite desorden, cualquier paquete inesperado se ignora.\\
+    Selective Repeat: almacena los paquetes válidos recibidos fuera de orden en el buffer, enviando igualmente ACKs, hasta que pueda reconstruir el flujo completo.
+
+    \item \textbf{Mensajes de control específicos:}\\
+    ERROR: permite rechazar solicitudes inválidas (por ejemplo, archivo inexistente o en uso) \\
+    FIN / FIN-ACK: asegura el cierre limpio de la sesión, evitando que un corte abrupto deje la conexión en estado inconsistente.
+
+\end{enumerate}
+A continuación, se presentan diagramas de secuencia que ilustran lo explicado en algunos de los items anteriores:
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=1\linewidth]{images/RETRANSMISION}
-    \caption{Retramision de paquetes por timeout}
+    \caption{Retramision de paquetes por timeout.}
     \label{fig:retransmision}
 \end{figure}
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{images/diagram_sec_unexistent_file.png}
+    \caption{Cierre de conexión y envio de error por solicitud de archivo inexistente.}
+    \label{fig:retransmision}
+\end{figure}
 
 
 

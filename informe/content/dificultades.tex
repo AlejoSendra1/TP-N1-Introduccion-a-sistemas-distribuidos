@@ -1,1 +1,18 @@
 \section{Dificultades encontradas}
+Durante el desarrollo del trabajo se presentaron distintos desafíos técnicos que requirieron ajustes y soluciones iterativas. A continuación describimos algunos de ellos:
+
+\begin{itemize}
+    \item \textbf{Manejo de timeouts:}\\
+    El manejo de muy agresivos que generaban retransmisiones excesivas y sobrecarga innecesaria.
+    \item \textbf{Problemas con la concurrencia del servidor:}\\ La gestión de multiples usuarios en el mismo socket rapidamente obligo a crear sockets dedicados para cada sesión y gestionar identificadores únicos para cada cliente para facilitar la identificación y correción de errores.
+    \item \textbf{Detección de duplicados y paquetes fuera de orden:}\\
+    en Selective Repeat, se requirió una implementación más robusta de la ventana deslizante y el buffer.
+    \item \textbf{Integración con Mininet:}\\ 
+    La simulación de pérdida de paquetes introducía comportamientos difíciles de depurar.
+\end{itemize}
+
+
+
+
+
+
