@@ -403,8 +403,10 @@ class RDTReceiver(AbstractReceiver):
             try:
                 # send INIT to main server port
                 self.socket.sendto(init_packet.to_bytes(), self.dest_addr)
-                self.logger.debug(f"Sent DOWNLOAD_INIT packet (attempt {attempt + 1})")
-                
+                self.logger.debug(
+                    f"Sent DOWNLOAD_INIT packet (attempt {attempt + 1})"
+                )
+
                 # Wait for ACCEPT
                 accept_data, addr = self.socket.recvfrom(ACK_BUFFER_SIZE)
                 accept_packet = RDTPacket.from_bytes(accept_data)
@@ -499,9 +501,10 @@ class RDTReceiver(AbstractReceiver):
                         self.socket.settimeout(original_timeout)
                         return True
                 elif accept_packet.packet_type == PacketType.ERROR:
-                    self.logger.error(f"Error during handshake: {accept_packet.data}")
+                    self.logger.error(
+                        f"Error during handshake: {accept_packet.data}"
+                    )
                     return False
-
 
             except timeout:
                 self.logger.debug("Timeout waiting for ACCEPT, retrying...")
