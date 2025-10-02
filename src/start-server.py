@@ -420,6 +420,7 @@ class ConcurrentDownloadRequest(AbstractRequest):
 
             return True  # ssuccess, but no data yet (handled by thread, actual transfer happens in background)
         except Exception as e:
+            self.logger.error(f"Failed to accept download request: {e}")
             return False
 
     def reject(self, reason: str = "Download request rejected"):

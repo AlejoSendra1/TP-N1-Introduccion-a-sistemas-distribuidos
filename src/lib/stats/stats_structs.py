@@ -23,18 +23,15 @@ class Stats:
     def start(self):
         if self.started:
             return
-        print(f"Starting stats collection {self.process} {self.protocol}")
         self.start_time = time.time()
         self.started = True
 
     def mark_connection_established(self):
-        print(f"Connection established {self.process} {self.protocol}")
         self.connection_time = time.time()
 
     def finish(self, status="success"):
         if self.finished:
             return
-        print(f"Finishing stats collection {self.process} {self.protocol} with status {status}")
         self.end_time = time.time()
         self.final_status = status
         self.record_to_csv()
