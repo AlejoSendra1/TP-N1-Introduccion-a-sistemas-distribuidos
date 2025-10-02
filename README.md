@@ -18,7 +18,7 @@ python3 start-server.py [-h] [-v | -q] [-H HOST] [-p PORT] [-s STORAGE]
 - `-h`, `--help`: Muestra el mensaje de ayuda.
 - `-v`, `--verbose`: Aumenta el nivel de detalle en los mensajes de salida
 - `-q`, `--quiet`: Disminuye el nivel de detalle en los mensajes de salida. 
-- `-H HOST`, `--host HOST`: Host en el que el servidor escuchará las conexiones
+- `-H HOST`, `--host HOST`: Dirección IP en el que el servidor escuchará las conexiones
 - `-p PORT`, `--port PORT`: Número de puerto en el que el servidor estará escuchando.
 - `-s STORAGE`, `--storage STORAGE`: Ruta al directorio donde se almacenarán los archivos recibidos. Por default es el directorio storage en el que se encuentra parado al momento de ejecutarlo (en caso de no existir se crea).
 
