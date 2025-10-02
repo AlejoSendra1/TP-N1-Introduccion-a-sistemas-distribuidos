@@ -81,6 +81,7 @@ class ReceiverStats(Stats):
         self.bytes_received = 0
         self.packets_received = 0
         self.duplicate_packets = 0
+        self.file_size = 0
 
     def recv(self, bytes_len):
         self.bytes_received += bytes_len
