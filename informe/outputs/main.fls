@@ -220,6 +220,7 @@ OUTPUT outputs/content/introduccion.aux
 INPUT ./content/introduccion.tex
 INPUT ./content/introduccion.tex
 INPUT content/introduccion.tex
+INPUT /usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/eccc1200.tfm
 INPUT ./content/hipotesis.tex
 INPUT ./content/hipotesis.tex
 OUTPUT outputs/content/hipotesis.aux
@@ -262,6 +263,11 @@ INPUT ./images/RETRANSMISION.png
 INPUT ./images/RETRANSMISION.png
 INPUT ./images/RETRANSMISION.png
 INPUT ./images/RETRANSMISION.png
+INPUT ./images/diagram_sec_unexistent_file.png
+INPUT ./images/diagram_sec_unexistent_file.png
+INPUT ./images/diagram_sec_unexistent_file.png
+INPUT ./images/diagram_sec_unexistent_file.png
+INPUT ./images/diagram_sec_unexistent_file.png
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ecrm1095.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ectt1095.tfm
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/public/cm/cmr10.tfm
@@ -345,6 +351,7 @@ INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfbx1200.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfbx1440.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfbx1728.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfbx2488.pfb
+INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfcc1200.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfrm1200.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfrm1728.pfb
 INPUT /usr/share/texmf/fonts/type1/public/cm-super/sfti1200.pfb
