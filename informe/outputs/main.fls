@@ -275,6 +275,26 @@ INPUT ./content/pruebas.tex
 INPUT ./content/pruebas.tex
 INPUT content/pruebas.tex
 INPUT /usr/share/texlive/texmf-dist/fonts/tfm/jknappen/ec/ecti1200.tfm
+INPUT ./images/server_sender_total_time (1).png
+INPUT ./images/server_sender_total_time (1).png
+INPUT ./images/server_sender_total_time (1).png
+INPUT ./images/server_sender_total_time (1).png
+INPUT ./images/server_sender_total_time (1).png
+INPUT ./images/download_receiver_throughput_loss (1).png
+INPUT ./images/download_receiver_throughput_loss (1).png
+INPUT ./images/download_receiver_throughput_loss (1).png
+INPUT ./images/download_receiver_throughput_loss (1).png
+INPUT ./images/download_receiver_throughput_loss (1).png
+INPUT ./images/server_sender_jitter.png
+INPUT ./images/server_sender_jitter.png
+INPUT ./images/server_sender_jitter.png
+INPUT ./images/server_sender_jitter.png
+INPUT ./images/server_sender_jitter.png
+INPUT ./images/upload_sender_window_utilization.png
+INPUT ./images/upload_sender_window_utilization.png
+INPUT ./images/upload_sender_window_utilization.png
+INPUT ./images/upload_sender_window_utilization.png
+INPUT ./images/upload_sender_window_utilization.png
 INPUT ./content/preguntas.tex
 INPUT ./content/preguntas.tex
 OUTPUT outputs/content/preguntas.aux

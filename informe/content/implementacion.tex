@@ -1,3 +1,4 @@
+\section{Implementación}
 \subsection{Arquitectura General}
 La implementación se dividió en varios módulos con responsabilidades bien definidas, siguiendo principios de diseño orientado a objetos.
 El sistema está compuesto por tres componentes principales:
@@ -136,19 +137,19 @@ En el protocolo implementado, cada paquete tiene un tipo específico que determi
 En el caso de una subida de archivo, el emisor es el Cliente y el receptor el Servidor. En el caso de una descarga, el emisor es el Servidor y el receptor el Cliente. El flujo de envio de paquetes DATA es el mismo para ambos casos.
 \begin{figure}[H]
     \centering
-    \includegraphics[width=1\linewidth]{images/UPLOAD_DOWNLOAD}
+    \includegraphics[height=0.8\textheight]{images/UPLOAD_DOWNLOAD}
     \caption{Subida / Descarga de archivo con Stop \& Wait}
     \label{fig:upload_download_sw}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[height=1\textheight]{images/UPLOAD_DOWNLOAD_SR}
+    \includegraphics[height=0.8\textheight]{images/UPLOAD_DOWNLOAD_SR}
     \caption{Subida / Descarga de archivo con Selective Repeat}
     \label{fig:upload_download_sr}
 \end{figure}
 
-\subsubsection{Manejo de errores}
+\subsection{Manejo de errores}
 % ACA PODRIAMOS AGREGAR ALGUN OTRO CASO DE ERROR TIPO ARCCHIVO NO EXISTE PARA MOSTRAR EL USO DEL TIPO DE PAQUETE "ERROR"
 
 \begin{figure}[H]
@@ -162,13 +163,13 @@ En el caso de una subida de archivo, el emisor es el Cliente y el receptor el Se
 
 
 
-\section{Manejo de Concurrencia}
+\subsection{Manejo de Concurrencia}
 
-\subsection{Arquitectura Concurrente}
+\subsubsection{Arquitectura Concurrente}
 El servidor implementado es capaz de atender múltiples clientes simultáneamente sin que las transferencias interfieran entre sí.
 El servidor utiliza un modelo de concurrencia basado en threads con recursos dedicados por sesión. La arquitectura se puede describir en tres niveles:
 
-\subsubsection{Thread Principal (Main Thread)}
+\textbf{Thread Principal (Main Thread)}
 
 El thread principal del servidor ejecuta un loop infinito que:
 
@@ -182,7 +183,7 @@ El thread principal del servidor ejecuta un loop infinito que:
 
 Este diseño permite que el thread principal continúe aceptando nuevas conexiones mientras las transferencias en curso se ejecutan en paralelo.
 
-\subsubsection{Threads Dedicados (Worker Threads)}
+\textbf{Threads Dedicados (Worker Threads)}
 
 Cada transferencia corre en su propio thread con recursos completamente aislados:
 
@@ -195,11 +196,11 @@ Cada transferencia corre en su propio thread con recursos completamente aislados
 
 Este aislamiento garantiza que un error o problema en una transferencia no afecta a las demás.
 
-\subsection{Gestión de Recursos Compartidos}
+\subsubsection{Gestión de Recursos Compartidos}
 
 Aunque cada transferencia está mayormente aislada, existen algunos recursos compartidos que requieren sincronización cuidadosa:
 
-\subsubsection{Diccionario de Sesiones Activas}
+\textbf{Diccionario de Sesiones Activas}
 
 El servidor mantiene un diccionario global de todas las sesiones activas, que contiene para cada sesión:
 
@@ -221,11 +222,11 @@ Para garantizar consistencia, todas las operaciones sobre este diccionario está
     \item Generar session ID único
 \end{itemize}
 
-\subsection{Puertos Dedicados}
+\subsubsection{Puertos Dedicados}
 
 Cada transferencia obtiene su propio puerto UDP, lo que proporciona aislamiento a nivel de socket del sistema operativo.
 
-\subsubsection{Asignación Dinámica de Puertos}
+\textbf{Asignación Dinámica de Puertos}
 
 El servidor crea un socket UDP y lo vincula al puerto 0, lo que indica al sistema operativo que asigne automáticamente un puerto disponible del rango de puertos dinámicos (típicamente 49152-65535). Este mecanismo tiene varias ventajas:
 
@@ -241,7 +242,7 @@ El servidor crea un socket UDP y lo vincula al puerto 0, lo que indica al sistem
     \item \textbf{Robustez:} Si un socket falla o se bloquea, no afecta a los demás
 \end{enumerate}
 
-\subsection{Control de Capacidad}
+\subsubsection{Control de Capacidad}
 
 El servidor implementa un límite configurable de transferencias concurrentes para prevenir agotamiento de recursos del sistema.
 
@@ -254,7 +255,7 @@ Antes de aceptar una nueva transferencia, el servidor verifica que el número de
     \item El cliente puede reintentar más tarde
 \end{enumerate}
 
-\subsection{Flujo Completo de una Sesión Concurrente}
+\subsubsection{Flujo Completo de una Sesión Concurrente}
 
 A continuación se describe el ciclo de vida completo de una sesión en el servidor concurrente:
 
@@ -309,29 +310,5 @@ A continuación se describe el ciclo de vida completo de una sesión en el servi
 
 % PENDIENTE AGREGAR SECCIONES QUE EXPLIQUEN EN CONCRETO LA IMPLE DEL STOP & WAIT Y EL SELECTIVE REPEAT
 
-
-
-
-
-
-
-
-
-
-
-
-
-\section{Implementación}
-\subsection{Arquitectura del sistema}
-\subsection{Realiable Data Transfer}
-\subsubsection{Estructuras compartidas}
-\paragraph{Creación de paquetes}
-\paragraph{Numeración de secuencia}
-\paragraph{Acknowledgments}
-\paragraph{Timers y retransmisiones}
-\subsubsection{Stop \& Wait}
-\subsubsection{Selective Repeat}
-\subsection{Concurrencia}
-\subsection{Manejo de errores}
-\subsection{Interfaces de usuario}
-\subsection{Configuración de parámetros}
+\subsection{Stop \& Wait}
+\subsection{Selective Repeat}

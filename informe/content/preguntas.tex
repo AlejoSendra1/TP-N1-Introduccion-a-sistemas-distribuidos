@@ -1,8 +1,77 @@
 \section{Preguntas a responder}
-\begin{itemize}
-    \item Describa la arquitectura Cliente-Servidor
-    \item ¿Cuál es la función de un protocolo de capa de aplicación?
-    \item Detalle el protocolo de aplicación desarrollado en este trabajo.
-    \item La capa de transporte del stack TCP/IP ofrece dos protocolos: TCP y UDP. ¿Qué servicios proveen dichos protocolos?
-¿Cuáles son sus características? ¿Cuándo es apropiado utilizar cada uno?
-\end{itemize}
+\begin{enumerate}
+    \item \textbf{Describa la arquitectura Cliente-Servidor}
+
+    La arquitectura Cliente-Servidor es un paradigma predominante en las aplicaciones de red modernas. En esta arquitectura, existe un host siempre activo, denominado servidor, que atiende las solicitudes de muchos otros hosts, que son los clientes.
+
+    Las características clave de la arquitectura Cliente-Servidor incluyen:
+    \begin{itemize}
+        \item Servidor siempre activo: El servidor está constantemente disponible para atender solicitudes.
+        \item Dirección conocida: El servidor posee una dirección fija y bien conocida, denominada dirección IP, lo que permite a los clientes contactarlo enviando un paquete a esa dirección.
+        \item Comunicación indirecta entre clientes: Los clientes generalmente no se comunican directamente entre sí.
+        \item Servidor Virtual: En aplicaciones populares, cuando un único host servidor es incapaz de responder a todas las solicitudes, se utiliza un centro de datos que alberga un gran número de hosts para crear un servidor virtual de gran capacidad (como en los motores de búsqueda o redes sociales).
+    \end{itemize}
+
+    En el contexto de una sesión de comunicación entre dos procesos, el proceso cliente es el que inicia la comunicación (el que se pone en contacto inicialmente con el otro proceso), mientras que el proceso servidor es el que espera a ser contactado para comenzar la sesión.
+    
+    \item \textbf{¿Cuál es la función de un protocolo de capa de aplicación?}
+
+    La función principal de un protocolo de la capa de aplicación es definir cómo los procesos de una aplicación, que se ejecutan en distintos sistemas terminales, intercambian mensajes entre sí.
+
+    Un protocolo de red es un conjunto definido de reglas y procedimientos que determinan cómo se transmiten los datos en las redes de computadoras.
+    
+    Específicamente, un protocolo de la capa de aplicación define los siguientes elementos:
+    \begin{itemize}
+        \item El formato y el orden de los mensajes intercambiados entre dos o más entidades que se comunican. Esto incluye los mensajes de petición y respuesta.
+        \item La sintaxis de los diversos tipos de mensajes (los campos que componen el mensaje y cómo se delimitan).
+        \item La semántica de los campos (el significado de la información contenida en los campos).
+        \item Las acciones tomadas al producirse la transmisión y/o recepción de un mensaje u otro evento.
+        \item Las reglas para determinar cuándo y cómo un proceso envía mensajes y responde a los mismos.
+    \end{itemize}
+
+    Los protocolos de la capa de aplicación (como HTTP y SMTP) se implementan casi siempre por software en los sistemas terminales.
+
+    \item \textbf{Detalle el protocolo de aplicación desarrollado en este trabajo.}
+    
+    % TODO: Completar esta sección con la descripción del protocolo desarrollado
+    
+    \item \textbf{La capa de transporte del stack TCP/IP ofrece dos protocolos: TCP y UDP. ¿Qué servicios proveen dichos protocolos? ¿Cuáles son sus características? ¿Cuándo es apropiado utilizar cada uno?}
+    
+    \subsection*{Protocolo UDP (User Datagram Protocol)}
+    
+    \textbf{Servicios y Características:}
+    \begin{itemize}
+        \item Sin Conexión: No requiere una fase de establecimiento de conexión entre las entidades de la capa de transporte emisora y receptora antes del envío del segmento.
+        \item Servicio no confiable: No ofrece ninguna garantía de que el mensaje llegue al proceso receptor. Los mensajes que llegan pueden hacerlo de manera desordenada.
+        \item Control mínimo de integridad: Proporciona servicios de comprobación de la integridad de los datos mediante un checksum, pero no garantiza la recuperación del error.
+        \item Sin control de flujo: UDP no ofrece control de flujo, lo que implica que los segmentos pueden perderse en el receptor debido al desbordamiento del buffer.
+        \item Sin control de congestión: UDP no incluye un mecanismo de control de congestión. El emisor puede introducir datos en la capa inferior a cualquier velocidad.
+        \item Poca sobrecarga: La cabecera de los paquetes UDP requiere únicamente 8 bytes.
+    \end{itemize}
+    
+    \textbf{Cuándo es apropiado utilizar UDP:}
+    \begin{itemize}
+        \item Aplicaciones sensibles al tiempo/tolerantes a pérdidas: Cuando las aplicaciones requieren una velocidad mínima de transmisión (rendimiento) y toleran algunas pérdidas de datos, como en telefonía por Internet, videoconferencias en tiempo real y transmisión de vídeo/audio.
+        \item Evitar retardos de establecimiento de conexión: Aplicaciones donde la velocidad es crítica y se desea evitar el establecimiento de conexión de TCP (ej. DNS).
+        \item Mayor control a nivel de aplicación: Para aplicaciones que requieren un control más directo sobre qué datos se envían y cuándo, evitando las restricciones de control de congestión de TCP.
+    \end{itemize}
+    
+    \subsection*{Protocolo TCP (Transmission Control Protocol)}
+    
+    \textbf{Servicios y Características:}
+    \begin{itemize}
+        \item Orientado a la conexión: Requiere un proceso de establecimiento de conexión (three-way handshake) entre el cliente y el servidor antes de que los mensajes de aplicación comiencen a transmitirse.
+        \item Transferencia de datos confiable (RDT): Garantiza que los datos transmitidos sean entregados al proceso receptor correctamente y en orden, convirtiendo el servicio no confiable de IP en un servicio confiable. Esto se logra mediante mecanismos de control de flujo, números de secuencia, reconocimientos (ACKs) y temporizadores.
+        \item Control de flujo: Proporciona un servicio de adaptación de velocidades para evitar que el emisor desborde el buffer del receptor, utilizando una ventana de recepción (\texttt{rwnd}) configurable.
+        \item Control de congestión: Regula la velocidad de transmisión del emisor cuando la red está congestionada, para evitar saturar los enlaces y routers.
+        \item Full-Duplex: La conexión permite que los procesos envíen mensajes entre sí simultáneamente.
+        \item Seguridad (SSL/TLS): Puede mejorarse con SSL (Secure Sockets Layer) para proporcionar servicios de seguridad (confidencialidad, integridad y autenticación).
+    \end{itemize}
+    
+    \textbf{Cuándo es apropiado utilizar TCP:}
+    \begin{itemize}
+        \item Confiabilidad es crítica: Aplicaciones que requieren que todos los datos lleguen a su destino sin errores ni pérdidas. Por ejemplo: Correo electrónico (SMTP), acceso remoto a terminales (Telnet), Web (HTTP) y transferencia de archivos (FTP).
+        \item Transferencias de datos grandes: Cuando se manejan grandes volúmenes de datos, TCP es preferible debido a su capacidad para gestionar la transmisión confiable y ordenada.
+        \item Aplicaciones que no toleran pérdidas: Aplicaciones donde la pérdida de datos es inaceptable, como en la transferencia de archivos y ciertas aplicaciones web.
+    \end{itemize}
+\end{enumerate}
