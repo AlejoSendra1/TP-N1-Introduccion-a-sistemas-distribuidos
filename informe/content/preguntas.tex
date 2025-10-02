@@ -171,6 +171,35 @@
     
     
     \item \textbf{La capa de transporte del stack TCP/IP ofrece dos protocolos: TCP y UDP. ¿Qué servicios proveen dichos protocolos? ¿Cuáles son sus características? ¿Cuándo es apropiado utilizar cada uno?}
+
+    Ambos protocolos proporcionan servicios de comprobación de la integridad de los datos al incluir campos de detección de errores en las cabeceras de sus segmentos y proveer servicio de multiplexación y demultiplexación, es decir, extender la entrega host a host a una entrega proceso a proceso.
+    Esto significa que UDP no garantiza que los datos enviados por un proceso lleguen intactos, ordenados, o que siquiera lleguen.
+
+    Por otro lado TCP proporciona a la aplicación que le invoca un servicio orientado a la conexión fiable, mientras que UDP proporciona un servicio sin conexión y no fiable a la aplicación que le invoca.
+
+    TCP, ademas de garantizar los mismos servicios que UDP, se caracteriza por proveer:
+    \begin{itemize} 
+        \item Transferencia de datos fiable:
+         Utilizando técnicas de control de flujo, números de secuencia, mensajes de reconocimiento y temporizadores.
+        \item Garantiza que los datos transmitidos por el proceso emisor sean entregados al proceso receptor, correctamente y en orden. 
+        \item Proporciona mecanismos de control de congestión. El control de congestión no es tanto un servicio proporcionado a la aplicación invocante, sino un servicio que se presta a Internet como un todo.
+    \end{itemize}
+
+    TCP Resulta más apropiado cuando la integridad y el orden de los datos son más importantes que la velocidad y la baja latencia. Algunos servicios que utilizan TCP son:
+    \begin{itemize}
+        \item HTTP
+        \item SMTP
+    \end{itemize}
+
+    Por otro lado, UDP resulta más apropiado cuando la velocidad y la baja latencia son más importantes que la fiabilidad, y la pérdida de algún paquete de datos es aceptable. Algunos servicios que utilizan UDP son:
+    \begin{itemize}
+        \item Streaming de audio/video
+        \item VoIP (Voz sobre IP)
+        \item DNS
+        \item Videoconferencias
+    \end{itemize}
+
+
     
     \subsection*{Protocolo UDP (User Datagram Protocol)}
     
