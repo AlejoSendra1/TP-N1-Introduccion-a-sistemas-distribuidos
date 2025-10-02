@@ -196,6 +196,7 @@ A continuación, se presentan diagramas de secuencia que ilustran lo explicado e
 \subsubsection{Arquitectura Concurrente}
 El servidor implementado es capaz de atender múltiples clientes simultáneamente sin que las transferencias interfieran entre sí.
 El servidor utiliza un modelo de concurrencia basado en threads con recursos dedicados por sesión. La arquitectura se puede describir en tres niveles:
+\\
 
 \textbf{Thread Principal (Main Thread)}
 
@@ -210,6 +211,7 @@ El thread principal del servidor ejecuta un loop infinito que:
 \end{enumerate}
 
 Este diseño permite que el thread principal continúe aceptando nuevas conexiones mientras las transferencias en curso se ejecutan en paralelo.
+\\
 
 \textbf{Threads Dedicados (Worker Threads)}
 
@@ -227,6 +229,7 @@ Este aislamiento garantiza que un error o problema en una transferencia no afect
 \subsubsection{Gestión de Recursos Compartidos}
 
 Aunque cada transferencia está mayormente aislada, existen algunos recursos compartidos que requieren sincronización cuidadosa:
+\\
 
 \textbf{Diccionario de Sesiones Activas}
 
@@ -364,6 +367,7 @@ El flujo básico es:
 \subsubsection{Implementación del emisor}
 
 La clase \texttt{RDTSender} en \texttt{stop\_wait.py} implementa el emisor del protocolo Stop \& Wait. Sus componentes principales son:
+\\
 
 \textbf{Variables de estado:}
 \begin{itemize}
@@ -372,10 +376,12 @@ La clase \texttt{RDTSender} en \texttt{stop\_wait.py} implementa el emisor del p
     \item \texttt{socket}: Socket UDP para transmisión
     \item \texttt{dest\_addr}: Dirección y puerto del receptor
 \end{itemize}
+\\
 
 \textbf{Preparación de paquetes:}
 
-El método \texttt{\_prepare\_packets()} lee el archivo fuente y lo fragmenta en paquetes DATA. Para optimizar el throughput en Stop \& Wait, se utiliza un tamaño de paquete mayor (8192 bytes) en comparación con Selective Repeat (4096 bytes), reduciendo así el número total de paquetes a transmitir y, por ende, el overhead del protocolo.
+El método \texttt{\_prepare\_packets()} lee el archivo fuente y lo fragmenta en paquetes DATA.
+\\
 
 \textbf{Envío confiable de paquetes:}
 
@@ -391,6 +397,7 @@ El método \texttt{\_send\_packet\_reliable()} implementa el núcleo del protoco
 \end{enumerate}
 
 La retransmisión automática por timeout es el mecanismo principal de recuperación ante pérdida de paquetes o ACKs. El timeout de 50ms fue ajustado empíricamente para balancear entre latencia y robustez ante pérdidas.
+\\
 
 \textbf{Cierre de sesión:}
 
@@ -399,7 +406,7 @@ El método \texttt{\_send\_fin()} maneja el cierre graceful de la conexión envi
 \subsubsection{Implementación del receptor}
 
 La clase \texttt{RDTReceiver} en \texttt{stop\_wait.py} implementa el receptor del protocolo. Su responsabilidad es recibir paquetes en orden, filtrar duplicados y confirmar recepciones.
-
+\\
 \textbf{Variables de estado:}
 \begin{itemize}
     \item \texttt{expected\_seq}: Número de secuencia esperado (0 o 1)
@@ -455,21 +462,6 @@ Aunque UDP puede entregar paquetes fuera de orden, Stop \& Wait garantiza orden 
 
 \textbf{Señalización de shutdown graceful:}
 El protocolo verifica periódicamente la variable global \texttt{\_shutdown\_requested} (configurada por SIGINT/SIGTERM). Si se detecta, tanto el emisor como el receptor abortan la transferencia ordenadamente.
-
-\subsubsection{Optimizaciones implementadas}
-
-\textbf{1. Tamaño de paquete aumentado:}
-Se utiliza \texttt{SW\_PACKET\_SIZE = 8192} bytes en lugar de los 4096 bytes estándar. Esto reduce a la mitad el número de paquetes para un archivo dado, disminuyendo el overhead del protocolo (menos handshakes por paquete).
-
-\textbf{2. Timeout agresivo:}
-El timeout de 50ms es significativamente menor que el timeout de Selective Repeat (200ms). Esto permite detección rápida de pérdidas y retransmisión inmediata, compensando parcialmente la naturaleza secuencial del protocolo.
-
-\textbf{3. Escritura asíncrona a disco:}
-Los datos recibidos se pasan a un thread dedicado mediante un \texttt{queue.Queue}. Esto permite que el receptor continúe procesando paquetes mientras el I/O de disco se ejecuta en paralelo, evitando que la escritura bloquee la recepción.
-
-\textbf{4. Reutilización de sockets:}
-El emisor configura \texttt{SO\_REUSEADDR} en el socket, permitiendo la rápida reutilización de puertos tras finalizar transferencias, especialmente importante en el modelo de puertos dedicados del servidor.
-
 
 \subsection{Selective Repeat}
 
@@ -624,35 +616,3 @@ El método \texttt{\_is\_in\_window()} determina si un número de secuencia est�
 
 La verificación de si un número de secuencia pertenece a la ventana activa debe contemplar el caso en que esta cruce el límite de 255 a 0. Para ello, el protocolo implementa una lógica de \textit{wrap-around} que distingue entre el caso normal (sin cruce) y el caso donde la ventana se extiende de los valores altos hacia los bajos del rango.  
 De esta forma, la ventana puede abarcar intervalos como \([240, 255] \cup [0, 20]\), garantizando que la transmisión y la recepción funcionen correctamente incluso en transferencias extensas. Esto asegura que el control de flujo sea continuo y robusto frente al límite de numeración de 8 bits.
-
-
-\subsubsection{Optimizaciones implementadas}
-
-\textbf{1. Tamaño de ventana ajustado:}
-Se usa \texttt{WINDOW\_SIZE = 20}, que empíricamente demostró ser un balance entre throughput y confiabilidad ante pérdidas. Ventanas más grandes aumentan throughput pero requieren más memoria y pueden causar más retransmisiones.
-
-\textbf{2. Socket no bloqueante:}
-El emisor configura un timeout corto (100ms) para \texttt{recvfrom()}, permitiendo verificar timers periódicamente sin bloquear el envío de nuevos paquetes.
-
-\textbf{3. ACKs inmediatos:}
-El receptor envía ACK inmediatamente al recibir cada paquete (incluso duplicados), minimizando la probabilidad de timeouts espurios por ACKs retrasados.
-
-\textbf{4. Paquetes más pequeños:}
-Se usa \texttt{PACKET\_SIZE = 4096} bytes (vs 8192 en Stop \& Wait). Paquetes más pequeños reducen el impacto de pérdidas individuales y mejoran la granularidad de retransmisiones.
-
-\subsubsection{Comparación de rendimiento con Stop \& Wait}
-
-Selective Repeat aprovecha el pipelining para lograr throughput significativamente mayor que Stop \& Wait:
-
-\[
-\text{Throughput}_{\text{SR}} \approx \frac{\text{WINDOW\_SIZE} \times \text{PACKET\_SIZE}}{\text{RTT}}
-\]
-
-Para \texttt{WINDOW\_SIZE = 20}, \texttt{PACKET\_SIZE = 4096} bytes, y RTT = 10ms:
-
-\[
-\text{Throughput}_{\text{SR}} \approx \frac{20 \times 4096}{0.01} = 8.19 \text{ MB/s} \approx 65.5 \text{ Mbps}
-\]
-
-Esta es aproximadamente 50 veces mayor que Stop \& Wait en las mismas condiciones. En presencia de pérdidas del 10\%, Selective Repeat mantiene alto rendimiento retransmitiendo solo paquetes perdidos, mientras que Stop \& Wait sufre retransmisiones más frecuentes debido a pérdidas de ACKs.
- 
