@@ -324,7 +324,10 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                         return True, self.received_data
                     # Signal end of transmission even on error
                     data_queue.put(None)
-                    return False, b""
+                    return False, b''
+                elif packet.packet_type == PacketType.ERROR:
+                    self.logger.error(f"Error during reception: {packet.data}")
+                    raise ValueError(f"Error during reception: {packet.data}")
 
                 # process regular DATA packet
                 complete = self._process_packet(
@@ -544,6 +547,12 @@ class SelectiveRepeatReceiver(AbstractReceiver):
                         )
                         self.socket.settimeout(original_timeout)
                         return True
+                elif accept_packet.packet_type == PacketType.ERROR:
+                    self.logger.error(f"Error during handshake: {accept_packet.data}")
+                    return False
+
+            except timeout as e:
+                self.logger.debug(f"Timeout waiting for ACCEPT, retrying...")
 
             except timeout:
                 self.logger.debug("Timeout waiting for ACCEPT, retrying...")
