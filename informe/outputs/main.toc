@@ -1,34 +1,44 @@
 \babel@toc {spanish}{}\relax 
-\contentsline {section}{\numberline {1}Introducción}{2}{section.1}%
-\contentsline {section}{\numberline {2}Hipótesis y suposiciones realizadas}{4}{section.2}%
-\contentsline {subsection}{\numberline {2.1}Sobre el Entorno de Red}{4}{subsection.2.1}%
-\contentsline {subsection}{\numberline {2.2}Sobre la Aplicación}{4}{subsection.2.2}%
-\contentsline {subsection}{\numberline {2.3}Sobre el Protocolo}{4}{subsection.2.3}%
-\contentsline {subsection}{\numberline {2.4}Sobre la Concurrencia}{5}{subsection.2.4}%
-\contentsline {subsection}{\numberline {2.5}Decisiones de Diseño Basadas en Suposiciones}{5}{subsection.2.5}%
-\contentsline {section}{\numberline {3}Implementación}{6}{section.3}%
-\contentsline {subsection}{\numberline {3.1}Arquitectura General}{6}{subsection.3.1}%
-\contentsline {subsection}{\numberline {3.2}Estructura de paquetes}{6}{subsection.3.2}%
-\contentsline {subsection}{\numberline {3.3}Tipos de paquetes}{6}{subsection.3.3}%
-\contentsline {subsection}{\numberline {3.4}Flujos del Protocolo}{8}{subsection.3.4}%
-\contentsline {subsubsection}{\numberline {3.4.1}Handshake (upload)}{8}{subsubsection.3.4.1}%
-\contentsline {subsubsection}{\numberline {3.4.2}Handshake (download)}{9}{subsubsection.3.4.2}%
-\contentsline {subsubsection}{\numberline {3.4.3}Cierre de conexion}{10}{subsubsection.3.4.3}%
-\contentsline {subsubsection}{\numberline {3.4.4}Subida / Descarga de archivo}{10}{subsubsection.3.4.4}%
-\contentsline {subsection}{\numberline {3.5}Manejo de errores}{12}{subsection.3.5}%
-\contentsline {subsection}{\numberline {3.6}Manejo de Concurrencia}{15}{subsection.3.6}%
-\contentsline {subsubsection}{\numberline {3.6.1}Arquitectura Concurrente}{15}{subsubsection.3.6.1}%
-\contentsline {subsubsection}{\numberline {3.6.2}Gestión de Recursos Compartidos}{16}{subsubsection.3.6.2}%
-\contentsline {subsubsection}{\numberline {3.6.3}Puertos Dedicados}{16}{subsubsection.3.6.3}%
-\contentsline {subsubsection}{\numberline {3.6.4}Control de Capacidad}{17}{subsubsection.3.6.4}%
-\contentsline {subsubsection}{\numberline {3.6.5}Flujo Completo de una Sesión Concurrente}{17}{subsubsection.3.6.5}%
-\contentsline {subsection}{\numberline {3.7}Stop \& Wait}{18}{subsection.3.7}%
-\contentsline {subsection}{\numberline {3.8}Selective Repeat}{18}{subsection.3.8}%
-\contentsline {section}{\numberline {4}Pruebas}{19}{section.4}%
-\contentsline {subsection}{\numberline {4.1}Métricas de rendimiento}{19}{subsection.4.1}%
-\contentsline {subsection}{\numberline {4.2}Herramientas utilizadas}{19}{subsection.4.2}%
-\contentsline {subsection}{\numberline {4.3}Escenarios de prueba}{19}{subsection.4.3}%
-\contentsline {subsection}{\numberline {4.4}Resultados obtenidos}{19}{subsection.4.4}%
-\contentsline {section}{\numberline {5}Preguntas a responder}{24}{section.5}%
-\contentsline {section}{\numberline {6}Dificultades encontradas}{27}{section.6}%
-\contentsline {section}{\numberline {7}Conclusiones}{28}{section.7}%
+\contentsline {section}{\numberline {1}Introducción}{3}{section.1}%
+\contentsline {section}{\numberline {2}Hipótesis y suposiciones realizadas}{5}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Sobre el Entorno de Red}{5}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Sobre la Aplicación}{5}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Sobre el Protocolo}{5}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}Sobre la Concurrencia}{6}{subsection.2.4}%
+\contentsline {subsection}{\numberline {2.5}Decisiones de Diseño Basadas en Suposiciones}{6}{subsection.2.5}%
+\contentsline {section}{\numberline {3}Implementación}{7}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Arquitectura General}{7}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Estructura de paquetes}{7}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Tipos de paquetes}{7}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Flujos del Protocolo}{9}{subsection.3.4}%
+\contentsline {subsubsection}{\numberline {3.4.1}Handshake (upload)}{9}{subsubsection.3.4.1}%
+\contentsline {subsubsection}{\numberline {3.4.2}Handshake (download)}{10}{subsubsection.3.4.2}%
+\contentsline {subsubsection}{\numberline {3.4.3}Cierre de conexion}{11}{subsubsection.3.4.3}%
+\contentsline {subsubsection}{\numberline {3.4.4}Subida / Descarga de archivo}{11}{subsubsection.3.4.4}%
+\contentsline {subsection}{\numberline {3.5}Manejo de errores}{13}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Manejo de Concurrencia}{16}{subsection.3.6}%
+\contentsline {subsubsection}{\numberline {3.6.1}Arquitectura Concurrente}{16}{subsubsection.3.6.1}%
+\contentsline {subsubsection}{\numberline {3.6.2}Gestión de Recursos Compartidos}{17}{subsubsection.3.6.2}%
+\contentsline {subsubsection}{\numberline {3.6.3}Puertos Dedicados}{17}{subsubsection.3.6.3}%
+\contentsline {subsubsection}{\numberline {3.6.4}Control de Capacidad}{18}{subsubsection.3.6.4}%
+\contentsline {subsubsection}{\numberline {3.6.5}Flujo Completo de una Sesión Concurrente}{18}{subsubsection.3.6.5}%
+\contentsline {subsection}{\numberline {3.7}Stop \& Wait}{19}{subsection.3.7}%
+\contentsline {subsubsection}{\numberline {3.7.1}Principio de funcionamiento}{20}{subsubsection.3.7.1}%
+\contentsline {subsubsection}{\numberline {3.7.2}Implementación del emisor}{20}{subsubsection.3.7.2}%
+\contentsline {subsubsection}{\numberline {3.7.3}Implementación del receptor}{21}{subsubsection.3.7.3}%
+\contentsline {subsubsection}{\numberline {3.7.4}Manejo de errores y casos especiales}{22}{subsubsection.3.7.4}%
+\contentsline {subsubsection}{\numberline {3.7.5}Optimizaciones implementadas}{22}{subsubsection.3.7.5}%
+\contentsline {subsection}{\numberline {3.8}Selective Repeat}{23}{subsection.3.8}%
+\contentsline {subsubsection}{\numberline {3.8.1}Principio de funcionamiento}{23}{subsubsection.3.8.1}%
+\contentsline {subsubsection}{\numberline {3.8.2}Implementación del emisor}{23}{subsubsection.3.8.2}%
+\contentsline {subsubsection}{\numberline {3.8.3}Implementación del receptor}{25}{subsubsection.3.8.3}%
+\contentsline {subsubsection}{\numberline {3.8.4}Optimizaciones implementadas}{26}{subsubsection.3.8.4}%
+\contentsline {subsubsection}{\numberline {3.8.5}Comparación de rendimiento con Stop \& Wait}{27}{subsubsection.3.8.5}%
+\contentsline {section}{\numberline {4}Pruebas}{28}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Métricas de rendimiento}{28}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Herramientas utilizadas}{28}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Escenarios de prueba}{28}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Resultados obtenidos}{28}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Preguntas a responder}{33}{section.5}%
+\contentsline {section}{\numberline {6}Dificultades encontradas}{40}{section.6}%
+\contentsline {section}{\numberline {7}Conclusiones}{41}{section.7}%
