@@ -208,6 +208,7 @@ class ConcurrentTransferRequest(AbstractRequest):
 
             # create receiver for this dedicated transfer
             stats = ReceiverStats(process="server", protocol=self.protocol)
+            stats.start()
             receiver = create_receiver(self.protocol, dedicated_sock, self.logger, stats=stats)
             
             # the client will send DATA packets directly to this dedicated port
@@ -313,6 +314,7 @@ class ConcurrentDownloadRequest(AbstractRequest):
 
             # create receiver for this dedicated download
             stats = SenderStats(process="server", protocol=self.protocol)
+            stats.start()
             sender = create_sender(self.protocol, dedicated_sock, self.client_addr, self.logger, stats=stats)
             sender.session_id = session_id
             self.logger.debug(f"Created sender for session {session_id} for client with address: {self.client_addr}")

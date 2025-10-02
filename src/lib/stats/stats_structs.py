@@ -4,6 +4,8 @@ import statistics
 
 class Stats:
     def __init__(self, process, protocol):
+        self.started = False
+        self.finished = False
         self.process = process
         self.protocol = protocol
         self.start_time = None
@@ -19,15 +21,24 @@ class Stats:
         self.window_utilization = []
 
     def start(self):
+        if self.started:
+            return
+        print(f"Starting stats collection {self.process} {self.protocol}")
         self.start_time = time.time()
+        self.started = True
 
     def mark_connection_established(self):
+        print(f"Connection established {self.process} {self.protocol}")
         self.connection_time = time.time()
 
     def finish(self, status="success"):
+        if self.finished:
+            return
+        print(f"Finishing stats collection {self.process} {self.protocol} with status {status}")
         self.end_time = time.time()
         self.final_status = status
         self.record_to_csv()
+        self.finished = True
 
     def record_to_csv(self, filename="stats.csv"):
         pass  # To be implemented in subclasses
@@ -94,9 +105,10 @@ class ReceiverStats(Stats):
     def record_to_csv(self, filename="receiver_stats.csv"):
         if not os.path.exists(filename):
             with open(filename, 'w') as f:
-                f.write("process,protocol,status,file_size,total_packets,total_time,connection_time,handshake_attempts,bytes_received,packets_received,throughput,window_utilization,duplicate_packets\n")
+                f.write("process,protocol,status,total_time,connection_time,handshake_attempts,bytes_received,packets_received,throughput,window_utilization,duplicate_packets\n")
         with open(filename, 'a') as f:
             total_time = self.end_time - self.start_time if self.start_time and self.end_time else 0
             connection_time = self.connection_time - self.start_time if self.start_time and self.connection_time else 0
             avg_util = sum(self.window_utilization)/len(self.window_utilization) if self.window_utilization else 0
-            f.write(f"{self.process},{self.protocol},{self.final_status},{self.file_size},{self.packets},{total_time:.2f},{connection_time:.2f},{self.handshake_attempts},{self.bytes_received},{self.packets_received},{self.throughput():.4f},{avg_util:.4f},{self.duplicate_packets}\n")
+
+            f.write(f"{self.process},{self.protocol},{self.final_status},{total_time:.2f},{connection_time:.2f},{self.handshake_attempts},{self.bytes_received},{self.packets_received},{self.throughput():.4f},{avg_util:.4f},{self.duplicate_packets}\n")

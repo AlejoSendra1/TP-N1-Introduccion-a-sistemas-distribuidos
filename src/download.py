@@ -183,8 +183,10 @@ def main():
             
             if not success:
                 logger.error("Failed to download file")
+                receiver.stats.finish(status="failure")
                 sys.exit(1)
 
+            receiver.stats.finish(status="success")
             # Check if the file was written successfully
             if os.path.exists(args.dst):
                 file_size = os.path.getsize(args.dst)
